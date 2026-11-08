@@ -24,6 +24,12 @@ const footer = document.getElementById("footer");
  * Scale the 2560x720 stage to the window. Local layout does not wait on the network.
  */
 function fitStage() {
+  const narrow = window.innerWidth < 1100 || window.innerHeight < 500 || (window.innerHeight > window.innerWidth && window.innerWidth < 1400);
+  stage.classList.toggle("compact", narrow);
+  if (narrow) {
+    stage.style.transform = "none";
+    return;
+  }
   const scale = Math.min(window.innerWidth / 2560, window.innerHeight / 720);
   stage.style.transform = "scale(" + scale + ")";
 }
@@ -66,13 +72,42 @@ function render(_nowMs) {
 function paintAll() {
   paintBanner();
   paintWifi();
-  paintTemp("cpu", "CPU · RYZEN 7 5800X3D");
-  paintTemp("gpu", "GPU · RTX 2080 SUPER");
+  paintTemp("cpu", "CPU");
+  paintTemp("gpu", "GPU");
   paintLoad();
   paintStats();
   paintCases();
   paintSpotify();
+  paintModules();
   paintFooter();
+}
+
+/** Hide a module without dropping it from the page silently. */
+function paintModules() {
+  const modules = (view && view.modules) || {};
+  const hidden = [];
+  [["cpu", "cpu"], ["gpu", "gpu"], ["load", "load"], ["stats", "memory"], ["cases", "fans"], ["spotify", "spotify"]].forEach((pair) => {
+    const node = document.getElementById(pair[0]);
+    const on = modules[pair[1]] !== false;
+    if (node) {
+      node.hidden = !on;
+    }
+    if (!on) {
+      hidden.push(pair[1]);
+    }
+  });
+  const note = document.getElementById("overflow");
+  if (!note) {
+    return;
+  }
+  if (hidden.length === 0 && !stage.classList.contains("compact")) {
+    note.hidden = true;
+    return;
+  }
+  note.hidden = false;
+  note.textContent = hidden.length
+    ? "Hidden modules: " + hidden.join(", ") + ". Open Setup, then Layout, to show them. This page scrolls instead of clipping them."
+    : "This window is narrower than the 2560×720 stage. Cards stack and the page scrolls so the text stays readable.";
 }
 
 /** Set the header band from link or demo. Demo is never inferred from a failed poll. */
@@ -333,20 +368,41 @@ function paintCases() {
  */
 function paintSpotify() {
   const root = document.getElementById("spotify");
-  const spot = view.spotify;
+  const spot = view.spotify || {};
   root.innerHTML = "";
   root.className = "panel pad";
   const head = el("div", "spot-head");
   head.append(el("div", "kicker", "SPOTIFY / NOW PLAYING"));
   const macros = el("button", "macros", "MACROS ›");
   macros.disabled = true;
-  macros.title = "Macros are not available in this version.";
+  macros.title = "Macros are not in this version.";
   head.append(macros);
   root.append(head);
-  if (!view.demo) {
+  if (!view.demo && spot.connected && spot.playing) {
+    const now = el("div", "now");
+    if (spot.art) {
+      const image = document.createElement("img");
+      image.className = "art";
+      image.alt = "";
+      image.src = spot.art;
+      now.append(image);
+    } else {
+      now.append(el("div", "art", ""));
+    }
+    const meta = el("div", "");
+    meta.append(el("div", "track", spot.title || ""));
+    meta.append(el("div", "sub", spot.artist || ""));
+    now.append(meta);
+    root.append(now);
+  } else if (!view.demo && spot.connected && !spot.playing) {
+    const box = el("div", "paused-box");
+    box.append(el("div", "track", "Nothing playing"));
+    box.append(el("div", "sub", "Paused"));
+    root.append(box);
+  } else if (!view.demo) {
     const box = el("div", "paused-box");
     box.append(el("div", "track", "Not connected"));
-    box.append(el("div", "sub", "Spotify controls stay off until an account is added. Nothing here is live playback."));
+    box.append(el("div", "sub", spot.detail || "Connect Spotify in Setup. This page does not ask for your password."));
     root.append(box);
   } else if (spot.playing) {
     const now = el("div", "now");
@@ -365,19 +421,24 @@ function paintSpotify() {
     root.append(box);
   }
   const controls = el("div", "controls");
-  controls.append(actionButton("Previous", false, null));
+  const live = !view.demo && spot.connected;
+  controls.append(actionButton("Previous", live && !!spot.canSkip, live ? "previous" : (view.demo ? null : null)));
   if (view.demo && spot.playing) {
     controls.append(actionButton("Pause", true, "pause"));
   } else if (view.demo && !spot.playing) {
     controls.append(actionButton("Play", true, "play"));
+  } else if (live && spot.canPause) {
+    controls.append(actionButton("Pause", true, "pause"));
+  } else if (live && spot.canPlay) {
+    controls.append(actionButton("Play", true, "play"));
   } else {
     controls.append(actionButton("Play", false, null));
   }
-  controls.append(actionButton("Next", false, null));
+  controls.append(actionButton("Next", live && !!spot.canSkip, live ? "next" : null));
   root.append(controls);
   const toggles = el("div", "toggles");
-  toggles.append(actionButton("Shuffle " + spot.shuffle, view.demo, "shuffle"));
-  toggles.append(actionButton("Repeat " + spot.repeat, view.demo, "repeat"));
+  toggles.append(actionButton("Shuffle " + (spot.shuffle || "off"), view.demo || (live && !!spot.canShuffle), view.demo || live ? "shuffle" : null));
+  toggles.append(actionButton("Repeat " + (spot.repeat || "off"), view.demo || (live && !!spot.canRepeat), view.demo || live ? "repeat" : null));
   root.append(toggles);
 }
 
@@ -393,10 +454,10 @@ function actionButton(label, enabled, action) {
   button.textContent = label;
   button.disabled = !enabled;
   if (!enabled) {
-    button.title = "Not available. This build does not send Spotify or macro commands.";
+    button.title = "Not available in this playback state.";
   }
-  if (action) {
-    button.addEventListener("click", () => postDemo(action));
+  if (action && enabled) {
+    button.addEventListener("click", () => postAction(action));
   }
   return button;
 }
@@ -406,12 +467,138 @@ function actionButton(label, enabled, action) {
  * @param {string} action play, pause, shuffle, or repeat
  * @returns {Promise<void>}
  */
-async function postDemo(action) {
-  await fetch("/api/demo/spotify", {
+let setupToken = "";
+
+async function postAction(action) {
+  const path = view && view.demo ? "/api/demo/spotify" : "/api/spotify/action";
+  await postSetup(path, { action });
+  await refreshView();
+}
+
+async function postSetup(path, body) {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action })
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify(body)
   });
+}
+
+async function loadSetup() {
+  const response = await fetch("/api/setup", { cache: "no-store" });
+  if (!response.ok) {
+    return null;
+  }
+  const payload = await response.json();
+  setupToken = payload.csrf || "";
+  return payload;
+}
+
+function openSetup() {
+  document.getElementById("setup").hidden = false;
+  paintSetup();
+}
+
+async function paintSetup() {
+  const payload = await loadSetup();
+  if (!payload) {
+    return;
+  }
+  document.getElementById("setup-redirect").textContent = payload.spotifyRedirectUri || "";
+  const clientId = document.getElementById("setup-client-id");
+  if (clientId && payload.spotifyClientId) {
+    clientId.value = payload.spotifyClientId;
+  }
+  document.getElementById("setup-status").textContent = payload.demo
+    ? "Demo is on. Pairing and Spotify login stay available, and demo numbers stay labelled."
+    : (payload.paired ? "Paired with " + (payload.hostUrl || "the host") + "." : "Not paired yet.");
+  const hosts = document.getElementById("setup-hosts");
+  hosts.replaceChildren();
+  (payload.hosts || []).forEach((host) => {
+    const button = el("button", "transport", (host.name || "Host") + " · " + (host.baseUrl || ""));
+    button.type = "button";
+    button.addEventListener("click", () => {
+      document.getElementById("setup-address").value = host.baseUrl || "";
+    });
+    hosts.append(button);
+  });
+  ["cpu", "gpu", "load", "memory", "fans", "spotify"].forEach((name) => {
+    const box = document.getElementById("mod-" + name);
+    if (box) {
+      box.checked = !payload.modules || payload.modules[name] !== false;
+    }
+  });
+}
+
+async function discoverHosts() {
+  await postSetup("/api/setup/discover", {
+    address: document.getElementById("setup-manual").value,
+    port: Number(document.getElementById("setup-port").value || 8765)
+  });
+  await paintSetup();
+}
+
+async function requestPairing() {
+  document.getElementById("setup-code").value = "";
+  await sendPair("");
+}
+
+async function pairHost() {
+  await sendPair(document.getElementById("setup-code").value);
+}
+
+async function sendPair(code) {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  const result = await fetch("/api/setup/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify({
+      baseUrl: document.getElementById("setup-address").value,
+      code: code
+    })
+  });
+  const payload = await result.json();
+  document.getElementById("setup-status").textContent = payload.detail || payload.error || (payload.step === "paired" ? "Paired. The token stays on this Pi." : "Approve the code on Windows, then submit it.");
+}
+
+async function saveLayout() {
+  const modules = {};
+  ["cpu", "gpu", "load", "memory", "fans", "spotify"].forEach((name) => {
+    modules[name] = document.getElementById("mod-" + name).checked;
+  });
+  await postSetup("/api/setup/layout", { modules });
+  await refreshView();
+}
+
+async function saveSpotifyId() {
+  await postSetup("/api/setup/spotify-id", { clientId: document.getElementById("setup-client-id").value });
+  await paintSetup();
+}
+
+async function connectSpotify() {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  const response = await fetch("/api/setup/spotify-begin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: "{}"
+  });
+  const payload = await response.json();
+  if (payload.url) {
+    window.location.href = payload.url;
+    return;
+  }
+  document.getElementById("setup-status").textContent = payload.detail || "Add the Client ID first. Do not paste a client secret.";
+}
+
+async function logoutSpotify() {
+  await postSetup("/api/setup/spotify-logout", {});
+  await paintSetup();
   await refreshView();
 }
 
@@ -440,6 +627,37 @@ function el(tag, className, text) {
   return node;
 }
 
+document.getElementById("setup-open").addEventListener("click", openSetup);
+document.getElementById("setup-close").addEventListener("click", () => {
+  document.getElementById("setup").hidden = true;
+});
+document.getElementById("setup-discover").addEventListener("click", discoverHosts);
+document.getElementById("setup-request").addEventListener("click", requestPairing);
+document.getElementById("setup-pair").addEventListener("click", pairHost);
+document.getElementById("setup-layout").addEventListener("click", saveLayout);
+document.getElementById("setup-spotify").addEventListener("click", connectSpotify);
+const saveClientId = document.getElementById("setup-save-id");
+if (saveClientId) {
+  saveClientId.addEventListener("click", saveSpotifyId);
+}
+document.getElementById("setup-spotify-out").addEventListener("click", logoutSpotify);
+document.querySelectorAll("#setup nav button").forEach((button) => {
+  button.addEventListener("click", () => {
+    const tab = button.getAttribute("data-tab");
+    document.querySelectorAll("#setup [data-panel]").forEach((panel) => {
+      panel.hidden = panel.getAttribute("data-panel") !== tab;
+    });
+  });
+});
 refreshView();
 setInterval(refreshView, 250);
 requestAnimationFrame(render);
+if (location.search.indexOf("setup=1") >= 0) {
+  openSetup();
+  const tab = new URLSearchParams(location.search).get("tab");
+  if (tab) {
+    document.querySelectorAll("#setup [data-panel]").forEach((panel) => {
+      panel.hidden = panel.getAttribute("data-panel") !== tab;
+    });
+  }
+}
