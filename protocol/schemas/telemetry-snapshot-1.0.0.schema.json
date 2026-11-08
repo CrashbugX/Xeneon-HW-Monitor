@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CrashbugX/Xeneon-HW-Monitor/blob/main/protocol/schemas/telemetry-snapshot-1.0.0.schema.json",
+  "title": "Diego telemetry snapshot",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "sampledOnce", "synthetic", "sampledAtUtc", "source", "poll", "backend", "readings"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "sampledOnce": { "type": "boolean" },
+    "synthetic": { "type": "boolean" },
+    "sequence": { "type": ["integer", "null"] },
+    "sampledAtUtc": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "required": ["kind", "synthetic"],
+      "properties": {
+        "kind": { "enum": ["synthetic", "librehardwaremonitor"] },
+        "synthetic": { "type": "boolean" },
+        "packageId": { "type": ["string", "null"] },
+        "packageVersion": { "type": ["string", "null"] },
+        "assemblyVersion": { "type": ["string", "null"] }
+      }
+    },
+    "poll": {
+      "type": "object",
+      "required": ["intervalSeconds", "minimumIntervalSeconds", "motherboardPolling", "acceptUniqueCandidates"],
+      "properties": {
+        "intervalSeconds": { "type": "number", "minimum": 0.5 },
+        "minimumIntervalSeconds": { "const": 0.5 },
+        "staleAfterSeconds": { "type": "number" },
+        "motherboardPolling": { "type": "boolean" },
+        "acceptUniqueCandidates": { "type": "boolean" }
+      }
+    },
+    "readings": {
+      "type": "object",
+      "required": ["cpu", "gpu", "memory", "fans"],
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "required": ["temperature", "utilization"]
+        },
+        "gpu": {
+          "type": "object",
+          "required": ["temperature", "load", "vram"]
+        },
+        "memory": {
+          "type": "object",
+          "required": ["used", "total"]
+        },
+        "fans": {
+          "type": "object",
+          "required": ["cpu", "gpu", "case"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "reading": {
+      "type": "object",
+      "required": ["status", "value", "unit", "binding", "verified"],
+      "properties": {
+        "status": { "enum": ["ok", "unmapped", "missing", "unsupported", "stale", "error", "incomplete"] },
+        "value": { "type": ["number", "null"] },
+        "unit": { "enum": ["celsius", "percent", "bytes", "rpm"] },
+        "sensorId": { "type": ["string", "null"] },
+        "binding": { "enum": ["none", "configured", "unique-candidate", "derived"] },
+        "verified": { "const": false }
+      }
+    }
+  }
+}
