@@ -18,6 +18,12 @@ public sealed record SensorSample
 {
     public required string Id { get; init; }
 
+    /// <summary>
+    /// LibreHardwareMonitor identifier before this host split a collision.
+    /// Null when <see cref="Id"/> is already that identifier.
+    /// </summary>
+    public string? LibraryId { get; init; }
+
     public required IReadOnlyList<string> Path { get; init; }
 
     public required string HardwareId { get; init; }
