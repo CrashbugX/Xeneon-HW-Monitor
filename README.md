@@ -6,11 +6,11 @@ One repository for the Windows sensor host and the Raspberry Pi dashboard. How t
 | --- | --- |
 | `host/` | Read-only .NET diagnostic, optional token-checked feed, Windows preshutdown coordinator. |
 | `protocol/` | Shared telemetry schema `1.0.0` plus the transport and shutdown notes. |
-| `client/` | Python bridge and the browser dashboard. No Spotify account and no macros. |
+| `client/` | Python bridge, dashboard, and Spotify remote control. No audio streaming and no macros. |
 | `PROVENANCE.md` | Where the LibreHardwareMonitor and PawnIO versions came from. |
 | `LICENSE` | MIT for this tree. The NuGet library has its own license. |
 
-Fan Control keeps controlling the fans. Nothing here edits its configuration, writes fan duty, installs a driver, or opens a port.
+Fan Control keeps controlling the fans. Nothing here edits its configuration, writes fan duty, or installs a driver. The host can listen on a LAN port after you open the settings window or start the optional service. Setup does not add a firewall rule unless that optional section is checked. Pairing and the Pi dashboard are described in `docs/ONBOARDING.md`.
 
 The PC this was shaped for is a Ryzen 7 5800X3D, an RTX 2080 SUPER with 8 GB of VRAM, 32 GB of RAM, and a Scythe Fuma 2 whose revision was not recorded. No sensor on that machine was read in the build that produced this tree.
 
