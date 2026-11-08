@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>diego-telemetry-host</AssemblyName>
     <RootNamespace>Diego.Telemetry.Host</RootNamespace>
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <Product>Xeneon HW Monitor Host</Product>
     <Company>Xeneon</Company>
     <AssemblyTitle>Xeneon HW Monitor Host</AssemblyTitle>
