@@ -9,6 +9,7 @@ This tree is three languages plus shell scripts. Nothing is minified.
 | HTML, CSS, vanilla JavaScript | `client/xeneon/static/` | Draw the 2560×720 dashboard at display rate |
 | PowerShell | `host/scripts/` | Build, publish, and optional elevated service setup |
 | POSIX shell | `client/scripts/` | User-level install and an optional overlay check |
+| NSIS | `host/installer/` | Windows setup program. Service section is off unless selected |
 
 ## Directory map
 
@@ -24,6 +25,7 @@ host/src/Diego.Telemetry.Host/           CLI, HTTP feed, shutdown coordinator, S
 host/tests/                  dotnet test
 host/config/example.host.json            sensor role map, no secrets
 host/config/example.shutdown.json        Pi poweroff wait policy, no secrets
+host/installer/                  NSIS setup. Product version 0.1.0. Service section is off. Unsigned.
 client/xeneon/thresholds.py  CPU and GPU color bands
 client/xeneon/contract.py    reject bad or reordered host documents
 client/xeneon/session.py     connecting / live / stale / disconnected / demo
