@@ -4,7 +4,7 @@ The host can publish telemetry and, on Windows preshutdown only, ask the Pi to p
 
 ## Transport to the Pi
 
-`serve` is an optional cleartext GET. It is not on unless someone starts it with a token file. There is still no UDP broadcast and no firewall change. The Pi draws at display rate from the latest sample. It does not ask Windows to sample at 60 Hz.
+`serve` is an optional cleartext GET. The settings window publishes it after pairing. Discovery is a separate UDP query on port 8764. The firewall changes only when you opt in to `Repair-PrivateFirewall.ps1`. The Pi draws at display rate from the latest sample. It does not ask Windows to sample at 60 Hz.
 
 Warnings, color changes, and hysteresis are decided on the Pi from these samples. They are not a reason to write a fan register.
 
