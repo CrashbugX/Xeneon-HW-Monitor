@@ -10,3 +10,5 @@
 host/config/local.host.json
 publish/
 .dotnet/
+**/__pycache__/
+*.pyc

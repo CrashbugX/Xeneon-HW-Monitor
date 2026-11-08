@@ -1,12 +1,12 @@
 # Xeneon HW Monitor
 
-One repository for a Windows sensor host and a later Raspberry Pi client. The host is the part that exists. The client is a placeholder.
+One repository for the Windows sensor host and the Raspberry Pi dashboard. How the pieces call each other is `docs/CODE-TOUR.md`.
 
 | Path | What it is |
 | --- | --- |
-| `host/` | Read-only .NET diagnostic. Lists sensors and writes JSON. Does not control fans. |
-| `protocol/` | Shared telemetry schema `1.0.0` and the notes both sides have to follow. |
-| `client/` | Empty on purpose. No Pi UI, no network code, no install steps that do anything. |
+| `host/` | Read-only .NET diagnostic, optional token-checked feed, Windows preshutdown coordinator. |
+| `protocol/` | Shared telemetry schema `1.0.0` plus the transport and shutdown notes. |
+| `client/` | Python bridge and the browser dashboard. No Spotify account and no macros. |
 | `PROVENANCE.md` | Where the LibreHardwareMonitor and PawnIO versions came from. |
 | `LICENSE` | MIT for this tree. The NuGet library has its own license. |
 
@@ -32,6 +32,13 @@ dotnet run --project host/src/Diego.Telemetry.Host -c Release -- snapshot --synt
 ```
 
 Real hardware exits with code 3 unless the process is the Windows publish. `--synthetic` is a fixture and is marked `synthetic: true` in the JSON. How to run the Windows build, what PawnIO is, and why a 1 second poll can still bother Fan Control are in `host/README.md`.
+
+The Pi page, from a checkout:
+
+```bash
+PYTHONPATH=client python3 -m xeneon --demo --local-port 8734
+PYTHONPATH=client python3 -m unittest discover -s client/tests -v
+```
 
 ## Shared JSON
 
