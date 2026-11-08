@@ -14,10 +14,17 @@ dotnet publish "$ROOT/host/src/Diego.Telemetry.Host/Diego.Telemetry.Host.csproj"
   -p:DebugType=none \
   -p:DebugSymbols=false \
   -o "$PAY"
+dotnet publish "$ROOT/host/src/Diego.Telemetry.Desktop/Diego.Telemetry.Desktop.csproj" \
+  -c Release -r win-x64 --self-contained true \
+  -p:PublishTrimmed=false \
+  -p:DebugType=none \
+  -p:DebugSymbols=false \
+  -o "$PAY"
 mkdir -p "$PAY/config"
 cp "$ROOT/host/config/example.host.json" "$PAY/config/example.host.json"
 cp "$ROOT/host/config/example.shutdown.json" "$PAY/config/shutdown.example.json"
 cp "$ROOT/host/installer/FIREWALL.txt" "$PAY/FIREWALL.txt"
+cp "$ROOT/host/installer/Repair-PrivateFirewall.ps1" "$PAY/Repair-PrivateFirewall.ps1"
 cp "$ROOT/host/installer/shortcuts/"*.cmd "$PAY/"
 cp "$ROOT/LICENSE" "$PAY/LICENSE.txt"
 (

@@ -1,13 +1,9 @@
-Xeneon HW Monitor Host does not change the Windows Firewall.
+The settings window and a normal install do not change the Windows Firewall.
 
-If the Pi is on another computer and you created config\serve.lan, Windows
-Firewall may still block inbound TCP 8765. An administrator can allow that
-port on a private network only. This is optional and not run by the installer:
+The Pi reaches this PC in two ways. A discovery query is inbound UDP on discoveryPort (8764 unless you changed it). Pairing and telemetry are inbound TCP on publishPort (8765 unless you changed it). Windows often blocks those on a Private network. The discovery reply goes back to the Pi's own port, so the Pi does not need an inbound rule. Typing the PC address on the Pi uses TCP only, which still works when UDP is blocked.
 
-netsh advfirewall firewall add rule name="Xeneon HW Monitor Host" dir=in action=allow protocol=TCP localport=8765 profile=private
+Repair-PrivateFirewall.ps1 reads those two ports from host.json and runs netsh advfirewall. It deletes the app's old rules and adds inbound TCP and UDP rules for the Private profile and the local subnet. It does not add a Public or Domain rule, and it does not turn the firewall off. Run it yourself from an elevated PowerShell. The script does not request elevation, so Windows asks only if you start the elevated window.
 
-Remove it later with:
+After you change the port in the settings window, the listener moves immediately. An old firewall rule still names the previous port until you run the script again.
 
-netsh advfirewall firewall delete rule name="Xeneon HW Monitor Host"
-
-Do not use profile=public. The feed is cleartext HTTP and requires the bearer token.
+Uninstall deletes the rules named "Xeneon HW Monitor Host", "Xeneon HW Monitor Host TCP", and "Xeneon HW Monitor Host UDP".

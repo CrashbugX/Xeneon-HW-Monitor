@@ -12,9 +12,11 @@ Target amd64-unicode
 !include "LogicLib.nsh"
 !include "Sections.nsh"
 !include "x64.nsh"
+!include "nsDialogs.nsh"
+!include "FileFunc.nsh"
 
 !define PRODUCT_NAME "Xeneon HW Monitor Host"
-!define PRODUCT_VERSION "0.1.1"
+!define PRODUCT_VERSION "0.2.0"
 !define PRODUCT_PUBLISHER "Xeneon"
 !define APP_GUID "{7C2E9A10-4B6D-4E2A-8F31-0A6B5C4D3E21}"
 !ifndef PAYLOAD
@@ -29,16 +31,18 @@ RequestExecutionLevel admin
 Unicode true
 SetCompressor /SOLID lzma
 
-VIProductVersion "0.1.1.0"
+VIProductVersion "0.2.0.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
-VIAddVersionKey "FileVersion" "0.1.1.0"
+VIAddVersionKey "FileVersion" "0.2.0.0"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} setup"
 VIAddVersionKey "LegalCopyright" "Xeneon"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 
 Var DataDir
 Var KeepService
+Var DeleteData
+Var DeleteBox
 
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
@@ -47,6 +51,7 @@ Var KeepService
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
+UninstPage custom un.AskData
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
@@ -84,6 +89,7 @@ Section "Xeneon HW Monitor Host" SEC_MAIN
   sample_kept:
 
   CreateDirectory "$SMPROGRAMS\Xeneon HW Monitor Host"
+  CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Xeneon HW Monitor.lnk" "$INSTDIR\XeneonHwMonitor.exe"
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Diagnostics.lnk" "$INSTDIR\Diagnostics.cmd" "" "$INSTDIR\diego-telemetry-host.exe"
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\List sensors.lnk" "$INSTDIR\ListSensors.cmd" "" "$INSTDIR\diego-telemetry-host.exe"
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Snapshot.lnk" "$INSTDIR\Snapshot.cmd" "" "$INSTDIR\diego-telemetry-host.exe"
@@ -102,6 +108,12 @@ Section /o "Windows service, manual start, Pi poweroff not armed" SEC_SVC
   nsExec::ExecToLog 'sc.exe delete XeneonTelemetryHost'
   nsExec::ExecToLog 'sc.exe create XeneonTelemetryHost binPath= "$INSTDIR\diego-telemetry-host.exe service" start= demand DisplayName= "Xeneon HW Monitor Host"'
   nsExec::ExecToLog 'sc.exe description XeneonTelemetryHost "Read-only telemetry host. Pi poweroff is a separate opt-in."'
+SectionEnd
+
+Section /o "Private-network firewall rules for this app" SEC_FW
+  ; Unchecked until the user opts in. The script allows Private + local subnet only.
+  ; It does not enable a Public rule and it does not turn the firewall off.
+  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Repair-PrivateFirewall.ps1"'
 SectionEnd
 
 Function .onInit
@@ -125,9 +137,14 @@ FunctionEnd
 
 Section "un.Full"
   Call un.SetDataDir
+  nsExec::ExecToLog 'taskkill /IM XeneonHwMonitor.exe /F'
   nsExec::ExecToLog 'sc.exe stop XeneonTelemetryHost'
   Sleep 500
   nsExec::ExecToLog 'sc.exe delete XeneonTelemetryHost'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Xeneon HW Monitor Host"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Xeneon HW Monitor Host TCP"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Xeneon HW Monitor Host UDP"'
+  Delete "$SMPROGRAMS\Xeneon HW Monitor Host\Xeneon HW Monitor.lnk"
   Delete "$SMPROGRAMS\Xeneon HW Monitor Host\Diagnostics.lnk"
   Delete "$SMPROGRAMS\Xeneon HW Monitor Host\List sensors.lnk"
   Delete "$SMPROGRAMS\Xeneon HW Monitor Host\Snapshot.lnk"
@@ -139,10 +156,44 @@ Section "un.Full"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}"
   DeleteRegKey HKLM "Software\Xeneon\HW Monitor Host"
+  ${If} $DeleteData == "1"
+    RMDir /r "$DataDir"
+  ${EndIf}
   ${IfNot} ${Silent}
-    MessageBox MB_OK "Removed the program files. Configuration and tokens under ProgramData\Xeneon were left in place."
+    ${If} $DeleteData == "1"
+      MessageBox MB_OK "Removed the program files and this app's configuration folder."
+    ${Else}
+      MessageBox MB_OK "Removed the program files. Configuration and tokens under ProgramData\Xeneon\HW Monitor Host were left in place."
+    ${EndIf}
   ${EndIf}
 SectionEnd
+
+Function un.onInit
+  StrCpy $DeleteData "0"
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/DELETEDATA" $1
+  IfErrors skip_delete
+    StrCpy $DeleteData "1"
+  skip_delete:
+FunctionEnd
+
+Function un.AskData
+  ${If} ${Silent}
+    Abort
+  ${EndIf}
+  nsDialogs::Create 1018
+  Pop $0
+  ${NSD_CreateLabel} 0 0 100% 36u "Program files will be removed. Configuration and tokens under ProgramData\Xeneon\HW Monitor Host are kept unless you check the box. Your user profile is not deleted."
+  Pop $2
+  ${NSD_CreateCheckbox} 0 48u 100% 12u "Also delete this app's configuration and tokens. This cannot be undone."
+  Pop $DeleteBox
+  nsDialogs::Show
+  ${NSD_GetState} $DeleteBox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $DeleteData "1"
+  ${EndIf}
+FunctionEnd
 
 Function un.SetDataDir
   ReadEnvStr $DataDir PROGRAMDATA
@@ -153,4 +204,5 @@ FunctionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "Self-contained host, shortcuts, and example config. Does not start a service or open a port."
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_SVC} "Optional. Registers a manual service with no Pi shutdown config and does not start it."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_FW} "Optional. Private profile and local subnet only: inbound TCP for the telemetry port and inbound UDP for discovery. Public is not opened. The firewall stays on. Leave unchecked and use the repair script later if you change the port."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
