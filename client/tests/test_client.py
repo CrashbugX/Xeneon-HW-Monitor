@@ -143,7 +143,7 @@ class PoweroffTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def test_shell_scripts_parse_and_do_not_touch_boot_blindly(self):
-        for name in ("install.sh", "uninstall.sh", "update.sh", "kiosk.sh", "overlay-enable.sh", "overlay-disable.sh"):
+        for name in ("install.sh", "uninstall.sh", "update.sh", "update-from-github.sh", "restart-bridge.sh", "kiosk.sh", "overlay-enable.sh", "overlay-disable.sh"):
             path = CLIENT / "scripts" / name
             subprocess.check_call(["bash", "-n", str(path)])
             text = path.read_text(encoding="utf-8")
@@ -151,6 +151,13 @@ class ScriptTests(unittest.TestCase):
             self.assertNotIn("ufw disable", text)
         install = (CLIENT / "scripts" / "install.sh").read_text(encoding="utf-8")
         self.assertIn("not root", install)
+        self.assertNotIn("/home/pi", install)
+        self.assertIn("labwc", install)
+        self.assertIn("sh \"$ROOT/scripts/restart-bridge.sh\"", install)
+        restart = (CLIENT / "scripts" / "restart-bridge.sh").read_text(encoding="utf-8")
+        self.assertNotIn("killall", restart)
+        self.assertNotIn("pkill", restart)
+        self.assertIn("xeneon", restart)
         overlay = (CLIENT / "scripts" / "overlay-enable.sh").read_text(encoding="utf-8")
         self.assertIn("--apply", overlay)
         completed = subprocess.run(["bash", str(CLIENT / "scripts" / "overlay-enable.sh"), "--check"], check=False, capture_output=True, text=True)
