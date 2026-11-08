@@ -1,3 +1,4 @@
+// Argument parser. Tokens are file paths, never the secret itself.
 namespace Diego.Telemetry.Host;
 
 public sealed class ParsedArgs
@@ -21,6 +22,16 @@ public sealed class ParsedArgs
     public double? IntervalSeconds { get; init; }
 
     public int? Count { get; init; }
+
+    public string? ListenAddress { get; init; }
+
+    public int? Port { get; init; }
+
+    public string? TokenFile { get; init; }
+
+    public bool AllowLan { get; init; }
+
+    public string? ShutdownConfigPath { get; init; }
 }
 
 public static class CommandLine
@@ -31,7 +42,9 @@ public static class CommandLine
         "list-sensors",
         "snapshot",
         "watch",
-        "check-backend"
+        "check-backend",
+        "serve",
+        "service"
     };
 
     public static ParsedArgs Parse(string[] args)
@@ -46,6 +59,11 @@ public static class CommandLine
         var acceptUnique = false;
         double? interval = null;
         int? count = null;
+        string? listen = null;
+        int? port = null;
+        string? tokenFile = null;
+        var allowLan = false;
+        string? shutdownConfig = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -93,6 +111,21 @@ public static class CommandLine
                 case "--accept-unique-candidates":
                     acceptUnique = true;
                     break;
+                case "--listen":
+                    listen = TakeValue(args, ref i, arg);
+                    break;
+                case "--port":
+                    port = ParseCount(TakeValue(args, ref i, arg));
+                    break;
+                case "--token-file":
+                    tokenFile = TakeValue(args, ref i, arg);
+                    break;
+                case "--allow-lan":
+                    allowLan = true;
+                    break;
+                case "--shutdown-config":
+                    shutdownConfig = TakeValue(args, ref i, arg);
+                    break;
                 case "--help":
                 case "-h":
                     if (command is not null)
@@ -118,7 +151,12 @@ public static class CommandLine
             MotherboardPolling = motherboard,
             AcceptUniqueCandidates = acceptUnique,
             IntervalSeconds = interval,
-            Count = count
+            Count = count,
+            ListenAddress = listen,
+            Port = port,
+            TokenFile = tokenFile,
+            AllowLan = allowLan,
+            ShutdownConfigPath = shutdownConfig
         };
     }
 
@@ -132,6 +170,8 @@ public static class CommandLine
               snapshot        One JSON sample. sampledOnce is true
               watch           JSON lines at the poll interval. sampledOnce is false
               check-backend   Report whether this build can see PawnIO. Does not open sensors
+              serve           Optional token-checked GET /v1/telemetry. Off unless you run it
+              service         Windows SCM entry. Preshutdown can ask the Pi to power off
               help            Show this text
 
             Options
@@ -146,7 +186,16 @@ public static class CommandLine
               --no-motherboard-polling
               --accept-unique-candidates fill a scalar role when exactly one candidate exists
                                          verified stays false
+              --listen ADDRESS           serve or service. No default public bind
+              --port N                   default 8765 when --listen is set
+              --token-file PATH          bearer token file. The token is not a command argument
+              --allow-lan                required to bind 0.0.0.0. Does not change the firewall
+              --shutdown-config PATH     service only. See host/config/example.shutdown.json
 
+            serve is a foreground listener. It does not register with the SCM, so stopping
+            it is not a PC shutdown and it does not ask the Pi to power off.
+            service on Windows accepts SERVICE_CONTROL_PRESHUTDOWN. SERVICE_CONTROL_STOP
+            only stops this process. HTTP on the LAN is cleartext; use a private network.
             Real sensors require the win-x64 publish on Windows, with PawnIO already installed.
             This program does not install PawnIO, write fan duty, or change Fan Control.
             Exit codes: 0 success or cancelled, 2 usage or config, 3 real hardware unavailable, 4 hardware open failed.

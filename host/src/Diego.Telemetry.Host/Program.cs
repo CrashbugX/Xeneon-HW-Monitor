@@ -1,3 +1,4 @@
+// Process entry. Builds a synthetic source off Windows, or LibreHardwareMonitor on a win-x64 publish.
 using Diego.Telemetry.Fake;
 
 namespace Diego.Telemetry.Host;
