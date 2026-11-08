@@ -65,7 +65,7 @@
         "value": { "type": ["number", "null"] },
         "unit": { "enum": ["celsius", "percent", "bytes", "rpm"] },
         "sensorId": { "type": ["string", "null"] },
-        "binding": { "enum": ["none", "configured", "unique-candidate", "derived"] },
+        "binding": { "enum": ["none", "configured", "unique-candidate", "derived", "semantic"] },
         "verified": { "const": false }
       }
     }
