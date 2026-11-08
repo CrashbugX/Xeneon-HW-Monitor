@@ -1,0 +1,13 @@
+Xeneon HW Monitor Host does not change the Windows Firewall.
+
+If the Pi is on another computer and you created config\serve.lan, Windows
+Firewall may still block inbound TCP 8765. An administrator can allow that
+port on a private network only. This is optional and not run by the installer:
+
+netsh advfirewall firewall add rule name="Xeneon HW Monitor Host" dir=in action=allow protocol=TCP localport=8765 profile=private
+
+Remove it later with:
+
+netsh advfirewall firewall delete rule name="Xeneon HW Monitor Host"
+
+Do not use profile=public. The feed is cleartext HTTP and requires the bearer token.
