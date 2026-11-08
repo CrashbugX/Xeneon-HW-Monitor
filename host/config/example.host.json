@@ -1,7 +1,4 @@
 {
-  // Copy to config/local.host.json and put real sensor ids there.
-  // local.host.json is gitignored. This example has no machine-specific values.
-  // Ids come from list-sensors. Leave a role null until you choose it.
   "pollIntervalSeconds": 1,
   "motherboardPolling": true,
   "acceptUniqueCandidates": false,
