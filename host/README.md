@@ -1,6 +1,6 @@
 # Windows host
 
-Read-only diagnostic. It lists sensors and writes JSON snapshots. It does not draw a Pi UI, talk to Spotify, run macros, or control fans.
+Read-only diagnostic. It lists sensors and writes JSON snapshots. The optional `serve` command and the Windows `service` command are described in `../docs/CODE-TOUR.md`. `serve` does not power off the Pi. Only preshutdown does, and only when the service is installed on Windows.
 
 Fan Control stays in charge of the fan curves. This program does not edit Fan Control's configuration, write fan duty, install a driver, register a startup service, or open a network port.
 
