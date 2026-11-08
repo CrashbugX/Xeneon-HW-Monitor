@@ -3,11 +3,27 @@ namespace Diego.Telemetry;
 
 public sealed class HostConfig
 {
+    public string ConfigSchema { get; set; } = "0.2";
+
     public double PollIntervalSeconds { get; set; } = 1;
 
     public bool MotherboardPolling { get; set; } = true;
 
     public bool AcceptUniqueCandidates { get; set; }
+
+    /// <summary>
+    /// When true, unambiguous CPU, GPU, RAM, VRAM, and GPU-fan roles are filled
+    /// from sensor names. Motherboard fan roles stay empty. Default for a
+    /// hand-built test config is false so older tests keep explicit ids.
+    /// The installed example turns it on.
+    /// </summary>
+    public bool AutoMap { get; set; }
+
+    public int PublishPort { get; set; } = 8765;
+
+    public int DiscoveryPort { get; set; } = 8764;
+
+    public bool DiscoveryEnabled { get; set; } = true;
 
     public double StaleAfterSeconds { get; set; } = 5;
 
