@@ -1,0 +1,10 @@
+#!/bin/sh
+# The only command the xeneon user is allowed to run as root.
+# It syncs disks and asks systemd to power off. It accepts no arguments.
+set -eu
+if [ "$#" -ne 0 ]; then
+  echo "xeneon-poweroff takes no arguments" >&2
+  exit 2
+fi
+sync
+exec systemctl poweroff
