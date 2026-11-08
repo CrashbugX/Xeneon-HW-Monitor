@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from xeneon.bridge import Bridge
 from xeneon.poweroff import PoweroffServer, PoweroffState
 from xeneon.session import Session
+from xeneon.setupflow import SetupFlow
+from xeneon.spotify import SpotifySession
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,12 +33,16 @@ def main(argv: list[str] | None = None) -> int:
     mode = "demo" if args.demo or config.get("mode") == "demo" else "live"
     port = args.local_port or int(config.get("localPort") or 8734)
     session = Session(mode, config.get("displayThresholds"), float(config.get("staleAfterSeconds") or 5))
+    config_path = Path(args.config) if args.config else _default_config()
+    token_path = Path(config.get("tokenFile") or (config_path.parent / "host.token"))
     token = ""
     host_url = config.get("hostUrl")
     if mode == "live":
-        token_path = config.get("tokenFile") or ""
-        token = _read_token(token_path) if token_path else ""
-    bridge = Bridge(session, host_url, token, port)
+        token = _read_token(str(token_path))
+    setup = SetupFlow(config_path, token_path)
+    session.modules = dict(setup.modules)
+    spotify = SpotifySession(config_path.parent / "spotify.json", setup.client_id, port)
+    bridge = Bridge(session, host_url, token, port, setup, spotify)
     control = None
     if mode == "live" and config.get("controlBind"):
         shutdown_token = _read_token(config.get("shutdownTokenFile") or "")
@@ -68,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
         if control is not None:
             control.stop()
     return 0
+
+
+def _default_config() -> Path:
+    root = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    return root / "xeneon" / "client.json"
 
 
 def _load(path: str) -> dict:

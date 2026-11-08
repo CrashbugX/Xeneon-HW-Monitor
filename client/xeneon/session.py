@@ -34,6 +34,7 @@ class Session:
         self._document: dict | None = None
         self._ever = False
         self.spotify = _demo_spotify() if mode == "demo" else _disconnected_spotify()
+        self.modules = {"cpu": True, "gpu": True, "load": True, "memory": True, "fans": True, "spotify": True}
         if mode == "demo":
             self._seed_demo()
 
@@ -101,9 +102,16 @@ class Session:
             "vram": _bytes_pair(doc, ("gpu", "vram", "used"), ("gpu", "vram", "total")) if doc else {"usedBytes": None, "totalBytes": None},
             "caseFans": _fans(doc, "case") if doc else [],
             "spotify": self.spotify,
+            "modules": self.modules,
             "macrosEnabled": False,
             "hostSynthetic": bool(doc and doc.get("synthetic")),
         }
+
+    def set_live_spotify(self, state: dict) -> None:
+        """Replace the live Spotify card. Demo mode ignores this so a failure cannot become the example."""
+        if self.mode == "demo":
+            return
+        self.spotify = state
 
     def demo_transport(self, action: str) -> tuple[int, str]:
         """Apply a local Spotify UI action. Refused unless mode is demo."""
@@ -283,6 +291,7 @@ def _demo_view(session: Session, wifi: dict) -> dict:
             {"name": "CASE 3", "rpm": None},
         ],
         "spotify": session.spotify,
+        "modules": session.modules,
         "macrosEnabled": False,
         "hostSynthetic": False,
     }
