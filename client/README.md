@@ -1,9 +1,43 @@
 # Raspberry Pi client
 
-This directory is a placeholder. There is no client program, no UI, no installer, and no network code.
+Local dashboard for a Pi 4. Python serves the page on `127.0.0.1`. The page is HTML, CSS, and vanilla JavaScript. It does not use a framework and it is not minified.
 
-The Windows host in `../host/` already writes telemetry JSON. A later client can read those documents and draw them. Drawing at 60 Hz is a client job. Sampling stays at 1 Hz on Windows. Warnings and hysteresis belong here, not in the host, and they are not a reason to write a fan register.
+The map of the code is `../docs/CODE-TOUR.md`.
 
-The contract to implement against is `../protocol/schemas/telemetry-snapshot-1.0.0.schema.json`. Read `../protocol/README.md` before adding code. Do not invent a second schema beside that file.
+## Run it by hand
 
-Nothing in this folder should be run. There is nothing to run.
+From the repository root, with the desktop user’s account:
+
+```sh
+PYTHONPATH=client python3 -m xeneon --demo --local-port 8734
+```
+
+Open `http://127.0.0.1:8734/`. The amber banner says the numbers are examples. Demo does not contact Windows and does not listen for poweroff.
+
+Live mode, after you copy `config/example.client.json` and create token files yourself:
+
+```sh
+PYTHONPATH=client python3 -m xeneon --config "$HOME/.config/xeneon/client.json"
+```
+
+`controlAllowLan` stays false in the example, so the poweroff port does not bind every interface until you set it. The telemetry token and the shutdown token are different files. Neither is written into the page.
+
+## Install
+
+```sh
+client/scripts/install.sh
+```
+
+That script refuses root. It adds a user systemd service and a desktop autostart entry. It does not edit boot configuration. `uninstall.sh` removes those entries. `update.sh` reinstalls them from this tree and restarts the user service. It does not download code.
+
+If there is no `DISPLAY` or `WAYLAND_DISPLAY`, `kiosk.sh` does not loop a browser. Raspberry Pi Connect can open the localhost URL. A missing browser is reported. Extra browser flags, if a compositor needs them, go in `XENEON_BROWSER_FLAGS`. The script does not guess Wayland versus X11.
+
+Power-cut behavior and the optional overlay check are in `docs/POWER.md`.
+
+## Tests
+
+```sh
+PYTHONPATH=client python3 -m unittest discover -s client/tests -v
+```
+
+Spotify is not connected. Live mode shows Not connected. Demo play, pause, shuffle, and repeat are local UI state only.
