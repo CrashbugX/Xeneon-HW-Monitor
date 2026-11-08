@@ -25,7 +25,11 @@ host/src/Diego.Telemetry.Host/           CLI, HTTP feed, shutdown coordinator, S
 host/tests/                  dotnet test
 host/config/example.host.json            sensor role map, no secrets
 host/config/example.shutdown.json        Pi poweroff wait policy, no secrets
-host/installer/                  NSIS setup. Product version 0.1.1. Service section is off. Unsigned.
+host/installer/                  NSIS setup. Product version 0.2.0. Service and firewall sections are off. Unsigned.
+host/src/Diego.Telemetry.Desktop/   Avalonia settings window. Close hides it. Exit stops it.
+host/src/Diego.Telemetry.Core/RoleMapper.cs   semantic roles. Board fans stay unassigned.
+host/src/Diego.Telemetry.Core/PairingBroker.cs  approval plus short code. Token hash only.
+client/xeneon/spotify.py         Spotify PKCE remote control. No client secret. No audio.
 host/src/Diego.Telemetry.Core/SensorIdentity.cs   unique ids when LibreHardwareMonitor repeats one
 client/xeneon/thresholds.py  CPU and GPU color bands
 client/xeneon/contract.py    reject bad or reordered host documents
