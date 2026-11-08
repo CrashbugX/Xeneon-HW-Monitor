@@ -34,6 +34,12 @@ public sealed class TelemetryDocument
 
     public IReadOnlyList<AmbiguousFan> AmbiguousFans { get; init; } = [];
 
+    /// <summary>
+    /// Library identifiers that were not unique, and the ids this host published instead.
+    /// Empty when every library id occurred once.
+    /// </summary>
+    public IReadOnlyList<SensorIdentityNote> Identity { get; init; } = [];
+
     public ReadingSet Readings { get; init; } = new();
 
     public DerivedMemory Derived { get; init; } = new();
@@ -68,6 +74,10 @@ public sealed class PollInfo
 public sealed class InventorySensor
 {
     public required string Id { get; init; }
+
+    /// <summary>Set when <see cref="Id"/> was disambiguated from a shared library identifier.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LibraryId { get; init; }
 
     public required IReadOnlyList<string> Path { get; init; }
 
@@ -117,6 +127,38 @@ public sealed class SensorCandidate
     public bool Verified { get; init; }
 
     public required string Reason { get; init; }
+}
+
+/// <summary>
+/// One library identifier that mapped to more than one sensor, or a sensor with no identifier.
+/// </summary>
+public sealed class SensorIdentityNote
+{
+    public required string LibraryId { get; init; }
+
+    /// <summary>reserved-owner, distinct-names, ambiguous, or missing-id.</summary>
+    public required string Resolution { get; init; }
+
+    public required bool BareIdAssigned { get; init; }
+
+    public required string Message { get; init; }
+
+    public required IReadOnlyList<SensorIdentityMember> Members { get; init; }
+}
+
+public sealed class SensorIdentityMember
+{
+    public required string Name { get; init; }
+
+    public required string PublishedId { get; init; }
+
+    public required string SensorType { get; init; }
+
+    public required string NormalizedUnit { get; init; }
+
+    public double? LibraryValue { get; init; }
+
+    public required bool ValuePublished { get; init; }
 }
 
 public sealed class AmbiguousFan

@@ -10,8 +10,22 @@ public static class SnapshotBuilder
         bool sampledOnce,
         int? sequence)
     {
-        var byId = observation.Sensors.ToDictionary(s => s.Id, StringComparer.Ordinal);
-        var (candidates, ambiguous) = CandidateFinder.Find(observation.Sensors);
+        // Resolve before any dictionary. A repeated LibreHardwareMonitor id, such as
+        // /gpu-nvidia/0/load/3 for both "GPU Memory" and "GPU Bus", used to throw
+        // ArgumentException here and list-sensors wrote no file.
+        var identity = SensorIdentity.Resolve(observation.Sensors);
+        var sensors = identity.Sensors;
+        Dictionary<string, SensorSample> byId;
+        try
+        {
+            byId = sensors.ToDictionary(s => s.Id, StringComparer.Ordinal);
+        }
+        catch (ArgumentException ex)
+        {
+            return UnreadableInventory(observation, config, sampledAtUtc, sampledOnce, sequence, ex.Message);
+        }
+
+        var (candidates, ambiguous) = CandidateFinder.Find(sensors);
         var candidatesByRole = candidates.GroupBy(c => c.Role, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<SensorCandidate>)g.ToArray(), StringComparer.Ordinal);
 
@@ -19,10 +33,10 @@ public static class SnapshotBuilder
             ? LimitationText.Always.Append(LimitationText.Synthetic).ToArray()
             : LimitationText.Always;
 
-        var derivedMemoryTotal = DeriveMemoryTotal(observation.Sensors, sampledAtUtc, config);
+        var derivedMemoryTotal = DeriveMemoryTotal(sensors, sampledAtUtc, config);
         var memoryTotal = config.Roles.MemoryTotal is null
             ? derivedMemoryTotal ?? ReadingFactory.Unmapped("bytes")
-            : MapOne(config.Roles.MemoryTotal, "bytes", byId, sampledAtUtc, config, "configured");
+            : MapOne(config.Roles.MemoryTotal, "bytes", byId, identity.Notes, sampledAtUtc, config, "configured");
 
         return new TelemetryDocument
         {
@@ -47,42 +61,48 @@ public static class SnapshotBuilder
                 MotherboardPolling = config.MotherboardPolling,
                 AcceptUniqueCandidates = config.AcceptUniqueCandidates
             },
-            Backend = observation.Backend,
+            Backend = observation.Backend with
+            {
+                Warnings = observation.Backend.Warnings
+                    .Concat(identity.Notes.Select(note => note.Message))
+                    .ToArray()
+            },
             Limitations = limitations,
-            Inventory = observation.Sensors.Select(s => ToInventory(s, sampledAtUtc, config)).ToArray(),
+            Inventory = sensors.Select(s => ToInventory(s, sampledAtUtc, config)).ToArray(),
             Candidates = candidates,
             AmbiguousFans = ambiguous,
+            Identity = identity.Notes,
             Readings = new ReadingSet
             {
                 Cpu = new CpuReadings
                 {
-                    Temperature = MapRole("cpu.temperature", config.Roles.CpuTemperature, "celsius", byId, candidatesByRole, sampledAtUtc, config),
+                    Temperature = MapRole("cpu.temperature", config.Roles.CpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Utilization = new UtilizationReadings
                     {
-                        Total = MapRole("cpu.utilization.total", config.Roles.CpuUtilizationTotal, "percent", byId, candidatesByRole, sampledAtUtc, config),
-                        Logical = MapList(config.Roles.CpuUtilizationLogical, "percent", byId, sampledAtUtc, config)
+                        Total = MapRole("cpu.utilization.total", config.Roles.CpuUtilizationTotal, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                        Logical = MapList(config.Roles.CpuUtilizationLogical, "percent", byId, identity.Notes, sampledAtUtc, config)
                     }
                 },
                 Gpu = new GpuReadings
                 {
-                    Temperature = MapRole("gpu.temperature", config.Roles.GpuTemperature, "celsius", byId, candidatesByRole, sampledAtUtc, config),
-                    Load = MapRole("gpu.load", config.Roles.GpuLoad, "percent", byId, candidatesByRole, sampledAtUtc, config),
+                    Temperature = MapRole("gpu.temperature", config.Roles.GpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                    Load = MapRole("gpu.load", config.Roles.GpuLoad, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Vram = new VramReadings
                     {
-                        Used = MapRole("vram.used", config.Roles.VramUsed, "bytes", byId, candidatesByRole, sampledAtUtc, config),
-                        Total = MapRole("vram.total", config.Roles.VramTotal, "bytes", byId, candidatesByRole, sampledAtUtc, config)
+                        Used = MapRole("vram.used", config.Roles.VramUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                        Total = MapRole("vram.total", config.Roles.VramTotal, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config)
                     }
                 },
                 Memory = new MemoryReadings
                 {
-                    Used = MapRole("memory.used", config.Roles.MemoryUsed, "bytes", byId, candidatesByRole, sampledAtUtc, config),
+                    Used = MapRole("memory.used", config.Roles.MemoryUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Total = memoryTotal
                 },
                 Fans = new FanReadings
                 {
-                    Cpu = MapList(config.Roles.FanCpu, "rpm", byId, sampledAtUtc, config),
-                    Gpu = MapList(config.Roles.FanGpu, "rpm", byId, sampledAtUtc, config),
-                    Case = MapList(config.Roles.FanCase, "rpm", byId, sampledAtUtc, config)
+                    Cpu = MapList(config.Roles.FanCpu, "rpm", byId, identity.Notes, sampledAtUtc, config),
+                    Gpu = MapList(config.Roles.FanGpu, "rpm", byId, identity.Notes, sampledAtUtc, config),
+                    Case = MapList(config.Roles.FanCase, "rpm", byId, identity.Notes, sampledAtUtc, config)
                 }
             },
             Derived = new DerivedMemory
@@ -98,12 +118,13 @@ public static class SnapshotBuilder
         string unit,
         IReadOnlyDictionary<string, SensorSample> byId,
         IReadOnlyDictionary<string, IReadOnlyList<SensorCandidate>> candidatesByRole,
+        IReadOnlyList<SensorIdentityNote> identity,
         DateTimeOffset sampledAtUtc,
         HostConfig config)
     {
         if (configuredId is not null)
         {
-            return MapOne(configuredId, unit, byId, sampledAtUtc, config, "configured");
+            return MapOne(configuredId, unit, byId, identity, sampledAtUtc, config, "configured");
         }
 
         if (!config.AcceptUniqueCandidates
@@ -113,13 +134,14 @@ public static class SnapshotBuilder
             return ReadingFactory.Unmapped(unit);
         }
 
-        return MapOne(candidates[0].SensorId, unit, byId, sampledAtUtc, config, "unique-candidate");
+        return MapOne(candidates[0].SensorId, unit, byId, identity, sampledAtUtc, config, "unique-candidate");
     }
 
     private static ReadingList MapList(
         IReadOnlyList<string> ids,
         string unit,
         IReadOnlyDictionary<string, SensorSample> byId,
+        IReadOnlyList<SensorIdentityNote> identity,
         DateTimeOffset sampledAtUtc,
         HostConfig config)
     {
@@ -128,7 +150,7 @@ public static class SnapshotBuilder
             return ReadingFactory.UnmappedList();
         }
 
-        var items = ids.Select(id => MapOne(id, unit, byId, sampledAtUtc, config, "configured")).ToArray();
+        var items = ids.Select(id => MapOne(id, unit, byId, identity, sampledAtUtc, config, "configured")).ToArray();
         var status = items.All(i => i.Status == "ok") ? "ok" : "incomplete";
         return new ReadingList { Status = status, Items = items };
     }
@@ -137,12 +159,30 @@ public static class SnapshotBuilder
         string id,
         string unit,
         IReadOnlyDictionary<string, SensorSample> byId,
+        IReadOnlyList<SensorIdentityNote> identity,
         DateTimeOffset sampledAtUtc,
         HostConfig config,
         string binding)
     {
         if (!byId.TryGetValue(id, out var sample))
         {
+            var collision = identity.FirstOrDefault(note =>
+                string.Equals(note.LibraryId, id, StringComparison.Ordinal) && !note.BareIdAssigned);
+            if (collision is not null)
+            {
+                return new Reading
+                {
+                    Status = "error",
+                    Value = null,
+                    Unit = unit,
+                    SensorId = id,
+                    Binding = binding,
+                    Verified = false,
+                    OperatorAsserted = binding == "configured",
+                    Error = new ReadingError("ambiguous_sensor_identity", collision.Message)
+                };
+            }
+
             return new Reading
             {
                 Status = "missing",
@@ -181,6 +221,7 @@ public static class SnapshotBuilder
         return new InventorySensor
         {
             Id = sample.Id,
+            LibraryId = sample.LibraryId,
             Path = sample.Path,
             HardwareId = sample.HardwareId,
             ParentHardwareId = sample.ParentHardwareId,
@@ -293,6 +334,56 @@ public static class SnapshotBuilder
             ObservedAtUtc = used[0].ObservedAtUtc > available[0].ObservedAtUtc ? used[0].ObservedAtUtc : available[0].ObservedAtUtc,
             Formula = "Memory Used + Memory Available, after each value was converted from binary gigabytes (2^30 bytes). This is not a sensor id. The library already rounded the counters to a float number of binary gigabytes.",
             Inputs = [used[0].Id, available[0].Id]
+        };
+    }
+
+    private static TelemetryDocument UnreadableInventory(
+        HardwareObservation observation,
+        HostConfig config,
+        DateTimeOffset sampledAtUtc,
+        bool sampledOnce,
+        int? sequence,
+        string detail)
+    {
+        var message =
+            "The sensor list still had a repeated id after identity resolution, so no role was filled. " +
+            detail;
+        return new TelemetryDocument
+        {
+            SchemaVersion = TelemetrySchema.Version,
+            SampledOnce = sampledOnce,
+            Synthetic = observation.Synthetic,
+            Sequence = sequence,
+            SampledAtUtc = sampledAtUtc,
+            Source = new SourceInfo
+            {
+                Kind = observation.Kind,
+                Synthetic = observation.Synthetic,
+                PackageId = observation.PackageId,
+                PackageVersion = observation.PackageVersion,
+                AssemblyVersion = observation.AssemblyVersion
+            },
+            Poll = new PollInfo
+            {
+                IntervalSeconds = config.PollIntervalSeconds,
+                MinimumIntervalSeconds = TelemetrySchema.MinimumPollIntervalSeconds,
+                StaleAfterSeconds = config.StaleAfterSeconds,
+                MotherboardPolling = config.MotherboardPolling,
+                AcceptUniqueCandidates = config.AcceptUniqueCandidates
+            },
+            Backend = observation.Backend,
+            Limitations = [message],
+            Identity =
+            [
+                new SensorIdentityNote
+                {
+                    LibraryId = "",
+                    Resolution = "ambiguous",
+                    BareIdAssigned = false,
+                    Message = message,
+                    Members = []
+                }
+            ]
         };
     }
 }
