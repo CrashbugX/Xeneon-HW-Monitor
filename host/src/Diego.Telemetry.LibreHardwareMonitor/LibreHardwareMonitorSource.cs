@@ -1,3 +1,4 @@
+// Read-only LibreHardwareMonitorLib 0.9.6 adapter. Does not write fan duty or install PawnIO.
 using System.Reflection;
 using LibreHardwareMonitor.Hardware;
 

@@ -1,3 +1,4 @@
+// Reads the PawnIO uninstall registry value. Does not open the device and does not install a driver.
 using LibreHardwareMonitor.PawnIo;
 
 namespace Diego.Telemetry.LibreHardwareMonitor;
