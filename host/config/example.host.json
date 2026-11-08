@@ -1,7 +1,12 @@
 {
+  "configSchema": "0.2",
   "pollIntervalSeconds": 1,
   "motherboardPolling": true,
   "acceptUniqueCandidates": false,
+  "autoMap": true,
+  "publishPort": 8765,
+  "discoveryPort": 8764,
+  "discoveryEnabled": true,
   "staleAfterSeconds": 5,
   "roles": {
     "cpuTemperature": null,
