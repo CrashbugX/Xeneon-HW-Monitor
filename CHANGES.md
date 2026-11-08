@@ -1,37 +1,28 @@
 # Upload manifest
 
-Copy the contents of the source zip onto `https://github.com/CrashbugX/Xeneon-HW-Monitor`. The zip root is the repository root. There is no extra wrapper folder.
+Source zip root is the repository root. The setup program is not inside that zip.
 
-Languages in this tree: C# (.NET 10) for the Windows host, Python 3 standard library for the Pi bridge, HTML/CSS/vanilla JavaScript for the dashboard, PowerShell and POSIX shell for scripts.
+The finished installer is unsigned. Its PE checksum is now the normal CheckSumMappedFile value (`0x01A66FA2`). `osslsigncode verify` no longer reports an invalid checksum. It still reports no signature.
 
-## New
+The single 27,644,716-byte file is too large for the artifact copy, so it is stored only as raw parts of 8,000,000 bytes or less. Concatenate in numeric order, then check the full SHA-256.
 
-- `client/xeneon/` dashboard bridge, temperature bands, document checks, Wi-Fi probe, poweroff route
-- `client/xeneon/static/` 2560×720 page
-- `client/scripts/` install, uninstall, update, kiosk, optional overlay check, fixed poweroff helper
-- `client/config/example.client.json` and a narrow sudoers example
-- `client/docs/POWER.md`
-- `host` `serve` token-checked `GET /v1/telemetry`
-- `host` `ShutdownCoordinator` and Windows SCM adapter for `SERVICE_CONTROL_PRESHUTDOWN`
-- `host/config/example.shutdown.json`
-- `host/scripts/install-shutdown-service.ps1` and `uninstall-shutdown-service.ps1` (not executed here)
-- `protocol/docs/transport.md` and `protocol/docs/shutdown.md`
-- `docs/CODE-TOUR.md`
-- `client/tests/test_client.py` and `host/tests/.../TransportAndShutdownTests.cs`
+```sh
+cat \
+  XeneonHwMonitorHost-0.1.0-win-x64.part001 \
+  XeneonHwMonitorHost-0.1.0-win-x64.part002 \
+  XeneonHwMonitorHost-0.1.0-win-x64.part003 \
+  XeneonHwMonitorHost-0.1.0-win-x64.part004 \
+  > XeneonHwMonitorHost-0.1.0-win-x64.exe
+sha256sum XeneonHwMonitorHost-0.1.0-win-x64.exe
+```
 
-## Updated
+Expected full file: 27,644,716 bytes, SHA-256 `b050fbfa8c08f28f6ca3901912e1f18703bd228297f76cb169c0bec026a5e2da`.
 
-- Root `README.md` only enough to point at the code tour and the Pi commands
-- `host/README.md`, `client/README.md`, `protocol/docs/future.md`
-- File-purpose comments on the existing host sources
+| Part | Bytes | SHA-256 |
+| --- | --- | --- |
+| `XeneonHwMonitorHost-0.1.0-win-x64.part001` | 8000000 | `2475443e47b619ff26c60e92d39708bd58699dc6e2577f9721bbb805e67104bd` |
+| `XeneonHwMonitorHost-0.1.0-win-x64.part002` | 8000000 | `24807f48f678b3d489a002aa0ee12370ecdf3d2da791905c9396fc68e97005d4` |
+| `XeneonHwMonitorHost-0.1.0-win-x64.part003` | 8000000 | `1f532b63ace684e8bf9e536c251f652f64c76f4bfee0583560b968b5ba1d69eb` |
+| `XeneonHwMonitorHost-0.1.0-win-x64.part004` | 3644716 | `57885a495991fa0d0e7588cd9e061f738b841f87b1014f075b905a23e54a6bf4` |
 
-## Not in this upload
-
-- `.git`, `bin`, `obj`, `__pycache__`, token files, or the screenshot PNGs
-- A claim that the Windows service or the Pi boot path has been run on the real machines
-
-Screenshots from this environment, not from a Pi:
-
-- `/opt/cursor/artifacts/client-connecting-2560x720.png`
-- `/opt/cursor/artifacts/client-demo-2560x720.png`
-- `/opt/cursor/artifacts/client-disconnected-2560x720.png`
+`host/installer/build-installer.sh` now runs `fix-pe-checksum.py` after NSIS. Rebuilds must do that before publishing the exe.

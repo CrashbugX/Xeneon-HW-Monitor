@@ -33,6 +33,8 @@ dotnet run --project host/src/Diego.Telemetry.Host -c Release -- snapshot --synt
 
 Real hardware exits with code 3 unless the process is the Windows publish. `--synthetic` is a fixture and is marked `synthetic: true` in the JSON. How to run the Windows build, what PawnIO is, and why a 1 second poll can still bother Fan Control are in `host/README.md`.
 
+The Windows installer build is `host/installer/README.md`. The setup file is unsigned.
+
 The Pi page, from a checkout:
 
 ```bash

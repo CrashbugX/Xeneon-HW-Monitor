@@ -12,3 +12,5 @@ publish/
 .dotnet/
 **/__pycache__/
 *.pyc
+host/installer/dist/
+host/installer/payload/
