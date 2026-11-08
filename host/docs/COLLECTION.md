@@ -44,7 +44,7 @@ Memory counters from this library include `GPU Memory Used`, `GPU Memory Total`,
 
 ## Memory
 
-`TotalMemory` creates `Memory Used` and `Memory Available` as `Data` sensors. `MemoryWindows` fills them from `GlobalMemoryStatusEx`, divided by 2^30, stored as a float. There is no total sensor. When `memoryTotal` is left null, this host adds the two normalized byte values and marks the result `binding: derived`, `sensorId: null`, `verified: false`. The float division means the byte figure is not exact to the byte. If either half is missing, the total is null and the status is `missing`. If the names are duplicated, the status is `error` and no sum is produced.
+`TotalMemory` creates `Memory Used` and `Memory Available` as `Data` sensors on hardware id `/ram`. A second node, hardware id `/vram` and name `Virtual Memory`, uses the same two sensor names. That `/vram` node is not GPU video memory. The physical total adds only the `/ram` pair. The virtual pair is reported separately as `derived.virtualTotalBytes` and is not mixed into `readings.memory.total`. GPU memory used, free, and total stay the library counters. Used plus free is not forced equal to total.
 
 Virtual-memory sensors are not used for the physical total.
 
