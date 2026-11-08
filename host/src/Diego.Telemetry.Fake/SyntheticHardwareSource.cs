@@ -1,3 +1,4 @@
+// Fixed fixture. Every id starts with /synthetic. Not a reading from the gaming PC.
 namespace Diego.Telemetry.Fake;
 
 /// <summary>
