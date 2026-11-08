@@ -1,0 +1,130 @@
+/* Dashboard chrome for a 2560x720 stage. The fit wrapper scales it. */
+:root {
+  --bg: #0b0d11;
+  --panel: #13161c;
+  --line: #242932;
+  --text: #e2e6ec;
+  --mut: #808996;
+  --dim: #545c68;
+  --slate: #aab8cc;
+  --green: #54de7c;
+  --yellow: #f6d434;
+  --orange: #ff8c1a;
+  --red: #ff3a3a;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+}
+#fit {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+#stage {
+  width: 2560px;
+  height: 720px;
+  position: relative;
+  transform-origin: center center;
+  background: var(--bg);
+}
+header { position: absolute; left: 28px; right: 28px; top: 18px; height: 52px; }
+.brand { position: absolute; left: 0; top: 8px; font-size: 17px; letter-spacing: 0.04em; }
+.brand span { color: var(--mut); font-weight: 400; }
+.banner {
+  position: absolute; left: 50%; top: 6px; transform: translateX(-50%);
+  min-width: 560px; text-align: center; padding: 10px 22px; border-radius: 18px;
+  font-size: 14px; font-weight: 650; letter-spacing: 0.03em;
+}
+.banner.demo, .banner.connecting { background: #282010; color: #f0c478; border: 1px solid #785a28; }
+.banner.live { background: #142018; color: var(--green); border: 1px solid #245c38; }
+.banner.stale, .banner.disconnected, .banner.unauthorized {
+  background: #241416; color: #ffb0a8; border: 1px solid #6a3030;
+}
+.wifi { position: absolute; right: 0; top: 0; text-align: right; }
+#wifi-ssid { font-size: 14px; font-weight: 650; }
+#wifi-detail { color: var(--dim); font-size: 11px; margin-top: 2px; }
+.bars { display: flex; gap: 3px; justify-content: flex-end; align-items: flex-end; height: 18px; margin-top: 4px; }
+.bars i { display: block; width: 5px; background: #343a44; border-radius: 1px; }
+.bars i.on { background: var(--text); }
+.temp-card, .panel {
+  position: absolute; border-radius: 16px; background: var(--panel); border: 1.5px solid var(--line);
+  transition: background-color 150ms linear, border-color 150ms linear, color 150ms linear;
+}
+#cpu { left: 28px; top: 84px; width: 552px; height: 568px; }
+#gpu { left: 596px; top: 84px; width: 552px; height: 568px; }
+#mid { position: absolute; left: 1164px; top: 84px; width: 764px; height: 568px; }
+#load { position: absolute; left: 0; top: 0; width: 764px; height: 272px; }
+#stats { position: absolute; left: 0; top: 288px; width: 764px; height: 184px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+#cases { position: absolute; left: 0; top: 488px; width: 764px; height: 80px; }
+#spotify { left: 1952px; top: 84px; width: 580px; height: 568px; }
+footer {
+  position: absolute; left: 28px; right: 28px; bottom: 14px;
+  color: var(--mut); font-size: 13px;
+}
+.kicker { color: var(--mut); font-size: 14px; font-weight: 650; letter-spacing: 0.04em; }
+.hero {
+  font-weight: 300; font-size: 132px; line-height: 0.9; letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  transition: color 150ms linear;
+}
+.unit { font-size: 32px; margin-left: 8px; }
+.pill {
+  position: absolute; right: 24px; top: 70px; border-radius: 18px; padding: 8px 14px;
+  font-size: 13px; font-weight: 700; border: 1px solid currentColor;
+}
+.sub { color: var(--mut); font-size: 15px; }
+canvas.graph { position: absolute; left: 24px; right: 24px; top: 250px; width: calc(100% - 48px); height: 210px; }
+.fans { position: absolute; left: 24px; right: 24px; bottom: 18px; display: flex; gap: 18px; align-items: center; }
+.fan { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 13px; }
+.fan b { color: var(--text); font-family: ui-monospace, monospace; font-size: 17px; font-weight: 500; }
+.fan svg { width: 22px; height: 22px; }
+.fan svg.spin { animation: spin var(--spin, 1.6s) linear infinite; }
+.fan svg.stopped { animation: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.pad { padding: 22px 24px; }
+.threads { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px 12px; margin-top: 18px; }
+.thread { background: #1a1e25; border-radius: 10px; height: 84px; position: relative; overflow: hidden; }
+.thread .bar {
+  position: absolute; left: 10px; right: 10px; bottom: 8px; height: 8px; border-radius: 5px; background: var(--slate);
+  transform-origin: bottom;
+}
+.thread em, .thread strong {
+  position: absolute; top: 10px; font-style: normal; font-family: ui-monospace, monospace; font-size: 12px;
+}
+.thread em { left: 10px; color: var(--dim); }
+.thread strong { right: 10px; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat { background: var(--panel); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+.stat .big { font-size: 48px; font-weight: 300; font-variant-numeric: tabular-nums; }
+.stat .of { color: var(--mut); font-size: 18px; margin-left: 6px; }
+.meter { height: 8px; border-radius: 5px; background: #20252d; margin-top: 18px; overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--slate); width: 0; }
+.stat small { display: block; margin-top: 8px; color: var(--dim); }
+.spot-head { display: flex; justify-content: space-between; align-items: center; }
+.macros, button.transport {
+  background: #191d24; color: var(--mut); border: 1px solid var(--line); border-radius: 12px;
+  font: inherit; padding: 10px 14px;
+}
+button.transport:disabled, .macros { opacity: 0.55; }
+button.transport.primary { color: var(--text); border-color: #465266; background: #222832; }
+.art {
+  width: 120px; height: 120px; border-radius: 12px;
+  background: linear-gradient(#1c1430, #3a2848 40%, #e8965a 42%, #1c1430 70%);
+}
+.now { display: flex; gap: 16px; margin-top: 18px; }
+.track { font-size: 28px; font-weight: 650; }
+.paused-box {
+  margin-top: 28px; border: 1px solid var(--line); border-radius: 14px; text-align: center; padding: 36px 12px;
+}
+.controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 18px; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.level-green { color: var(--green); background: #163024; border-color: #2f7a4c; }
+.level-yellow { color: var(--yellow); background: #2c280f; border-color: #8a7420; }
+.level-orange { color: var(--orange); background: #2e1c0e; border-color: #a85a16; }
+.level-red { color: var(--red); background: #2e1214; border-color: #a82828; }
