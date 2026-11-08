@@ -14,7 +14,7 @@ Target amd64-unicode
 !include "x64.nsh"
 
 !define PRODUCT_NAME "Xeneon HW Monitor Host"
-!define PRODUCT_VERSION "0.1.0"
+!define PRODUCT_VERSION "0.1.1"
 !define PRODUCT_PUBLISHER "Xeneon"
 !define APP_GUID "{7C2E9A10-4B6D-4E2A-8F31-0A6B5C4D3E21}"
 !ifndef PAYLOAD
@@ -29,10 +29,10 @@ RequestExecutionLevel admin
 Unicode true
 SetCompressor /SOLID lzma
 
-VIProductVersion "0.1.0.0"
+VIProductVersion "0.1.1.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
-VIAddVersionKey "FileVersion" "0.1.0.0"
+VIAddVersionKey "FileVersion" "0.1.1.0"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} setup"
 VIAddVersionKey "LegalCopyright" "Xeneon"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"

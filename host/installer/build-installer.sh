@@ -5,6 +5,8 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 PAY=$(mktemp -d)
 OUT="$ROOT/host/installer/dist"
+VER=$(sed -n 's/^!define PRODUCT_VERSION "\(.*\)"/\1/p' "$ROOT/host/installer/XeneonHost.nsi")
+test -n "$VER"
 mkdir -p "$OUT"
 dotnet publish "$ROOT/host/src/Diego.Telemetry.Host/Diego.Telemetry.Host.csproj" \
   -c Release -r win-x64 --self-contained true \
@@ -22,8 +24,8 @@ cp "$ROOT/LICENSE" "$PAY/LICENSE.txt"
   cd "$ROOT/host/installer"
   makensis -DPAYLOAD="$PAY" XeneonHost.nsi
 )
-mv -f "$ROOT/host/installer/XeneonHwMonitorHost-0.1.0-win-x64.exe" "$OUT/XeneonHwMonitorHost-0.1.0-win-x64.exe"
+mv -f "$ROOT/host/installer/XeneonHwMonitorHost-$VER-win-x64.exe" "$OUT/XeneonHwMonitorHost-$VER-win-x64.exe"
 # NSIS writes CheckSum as 0. Fill in the normal PE checksum. This does not sign the file.
-python3 "$ROOT/host/installer/fix-pe-checksum.py" "$OUT/XeneonHwMonitorHost-0.1.0-win-x64.exe"
+python3 "$ROOT/host/installer/fix-pe-checksum.py" "$OUT/XeneonHwMonitorHost-$VER-win-x64.exe"
 rm -rf "$PAY"
-echo "$OUT/XeneonHwMonitorHost-0.1.0-win-x64.exe"
+echo "$OUT/XeneonHwMonitorHost-$VER-win-x64.exe"

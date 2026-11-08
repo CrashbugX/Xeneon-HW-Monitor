@@ -13,7 +13,7 @@ FIREWALL = Path(__file__).with_name("FIREWALL.txt").read_text(encoding="utf-8")
 class LayoutRules(unittest.TestCase):
     def test_product_identity_and_opt_in_sections(self):
         self.assertIn('!define PRODUCT_NAME "Xeneon HW Monitor Host"', NSI)
-        self.assertIn('!define PRODUCT_VERSION "0.1.0"', NSI)
+        self.assertIn('!define PRODUCT_VERSION "0.1.1"', NSI)
         self.assertIn("Section /o", NSI)
         self.assertIn("service.opted-in", NSI)
         service = NSI.split("Section /o", 1)[1].split("SectionEnd", 1)[0]

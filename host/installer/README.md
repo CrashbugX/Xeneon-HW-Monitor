@@ -1,6 +1,6 @@
 # Xeneon HW Monitor Host installer
 
-Product name: **Xeneon HW Monitor Host**. Version **0.1.0**. The setup file is unsigned. Windows SmartScreen can warn. This project does not disable Defender, SmartScreen, or driver signature checks, and it does not install PawnIO.
+Product name: **Xeneon HW Monitor Host**. Version **0.1.1**. The setup file is unsigned. Windows SmartScreen can warn. This project does not disable Defender, SmartScreen, or driver signature checks, and it does not install PawnIO.
 
 Build on a machine with the .NET 10 SDK and NSIS:
 
@@ -8,7 +8,7 @@ Build on a machine with the .NET 10 SDK and NSIS:
 host/installer/build-installer.sh
 ```
 
-The script publishes `win-x64` self-contained with trimming off, runs `makensis`, then `fix-pe-checksum.py`. NSIS leaves the PE checksum at zero. The script writes the normal ImageHlp checksum. It does not sign the file. Output: `host/installer/dist/XeneonHwMonitorHost-0.1.0-win-x64.exe`.
+The script publishes `win-x64` self-contained with trimming off, runs `makensis`, then `fix-pe-checksum.py`. NSIS leaves the PE checksum at zero. The script writes the normal ImageHlp checksum. It does not sign the file. Output: `host/installer/dist/XeneonHwMonitorHost-0.1.1-win-x64.exe`. Version 0.1.0 is left in that directory when it is already there. The 0.1.1 setup is the one that keeps both NVIDIA load rows that share `/gpu-nvidia/0/load/3`.
 
 ## What setup does
 
