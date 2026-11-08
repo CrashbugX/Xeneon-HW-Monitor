@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "diego.telemetry.abstractions": {
+        "type": "Project"
+      },
+      "diego.telemetry.core": {
+        "type": "Project",
+        "dependencies": {
+          "Diego.Telemetry.Abstractions": "[1.0.0, )"
+        }
+      }
+    },
+    "net10.0/win-x64": {}
+  }
+}

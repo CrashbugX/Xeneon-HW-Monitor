@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Diego.Telemetry.Fake</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Diego.Telemetry.Abstractions\Diego.Telemetry.Abstractions.csproj" />
+    <ProjectReference Include="..\Diego.Telemetry.Core\Diego.Telemetry.Core.csproj" />
+  </ItemGroup>
+</Project>
