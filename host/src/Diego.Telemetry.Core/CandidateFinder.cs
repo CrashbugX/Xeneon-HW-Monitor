@@ -21,8 +21,8 @@ public static class CandidateFinder
             "LibreHardwareMonitor names this load sensor from CPUID core and thread numbers. That label is not a verified OS logical-processor index. A 16-thread CPU is not guaranteed to expose 16 load sensors.");
         Add(candidates, sensors, "gpu.load", static s => IsGpu(s) && s.SensorType == "Load",
             "Load sensor on a GPU hardware node. Names such as GPU Core, memory, or a D3D engine are not treated as the full GPU load.");
-        Add(candidates, sensors, "memory.used", static s => s.HardwareType == "Memory" && s.SensorType == "Data" && s.Name == "Memory Used",
-            "Library name is exactly \"Memory Used\" on Memory hardware. The id is still not applied unless the config maps it, or acceptUniqueCandidates is true. verified stays false.");
+        Add(candidates, sensors, "memory.used", static s => PhysicalMemory.IsPhysicalData(s, "Memory Used"),
+            "Library name is exactly \"Memory Used\" on the physical RAM node. Virtual Memory uses the same name and is not a candidate. verified stays false.");
         Add(candidates, sensors, "memory.total", static s => s.HardwareType == "Memory" && s.SensorType == "Data" && s.Name == "Memory Total",
             "A sensor literally named \"Memory Total\". LibreHardwareMonitorLib 0.9.6 does not create one; physical total is derived from Used plus Available and is not given a sensor id.");
         Add(candidates, sensors, "vram.used", IsVramUsed,
@@ -34,6 +34,7 @@ public static class CandidateFinder
 
         var ambiguous = sensors
             .Where(s => s.SensorType == "Fan" && BoardFanTypes.Contains(s.HardwareType, StringComparer.Ordinal))
+            .Where(s => !s.Name.Contains("chipset", StringComparison.OrdinalIgnoreCase))
             .Select(s => new AmbiguousFan
             {
                 SensorId = s.Id,

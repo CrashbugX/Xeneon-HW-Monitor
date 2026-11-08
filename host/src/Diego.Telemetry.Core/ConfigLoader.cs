@@ -86,6 +86,15 @@ public static class ConfigLoader
         CheckList(errors, "roles.fanCpu", config.Roles.FanCpu);
         CheckList(errors, "roles.fanGpu", config.Roles.FanGpu);
         CheckList(errors, "roles.fanCase", config.Roles.FanCase);
+        if (!EndpointRules.TryValidatePort(config.PublishPort, out var publishError))
+        {
+            errors.Add("publishPort: " + publishError);
+        }
+
+        if (!EndpointRules.TryValidatePort(config.DiscoveryPort, out var discoveryError))
+        {
+            errors.Add("discoveryPort: " + discoveryError);
+        }
 
         if (errors.Count > 0)
         {

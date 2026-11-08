@@ -33,7 +33,21 @@ public static class SnapshotBuilder
             ? LimitationText.Always.Append(LimitationText.Synthetic).ToArray()
             : LimitationText.Always;
 
-        var derivedMemoryTotal = DeriveMemoryTotal(sensors, sampledAtUtc, config);
+        var plan = RoleMapper.Plan(sensors, config);
+        var derivedMemoryTotal = DerivePair(
+            sensors,
+            sampledAtUtc,
+            config,
+            static sample => PhysicalMemory.IsPhysicalData(sample, "Memory Used"),
+            static sample => PhysicalMemory.IsPhysicalData(sample, "Memory Available"),
+            "Physical RAM is Memory Used plus Memory Available on the physical node. The virtual-memory node is not included.");
+        var virtualMemoryTotal = DerivePair(
+            sensors,
+            sampledAtUtc,
+            config,
+            static sample => PhysicalMemory.IsVirtual(sample) && sample.SensorType == "Data" && sample.Name == "Memory Used",
+            static sample => PhysicalMemory.IsVirtual(sample) && sample.SensorType == "Data" && sample.Name == "Memory Available",
+            "Virtual memory used plus available. This is not physical RAM and not GPU VRAM.");
         var memoryTotal = config.Roles.MemoryTotal is null
             ? derivedMemoryTotal ?? ReadingFactory.Unmapped("bytes")
             : MapOne(config.Roles.MemoryTotal, "bytes", byId, identity.Notes, sampledAtUtc, config, "configured");
@@ -72,42 +86,45 @@ public static class SnapshotBuilder
             Candidates = candidates,
             AmbiguousFans = ambiguous,
             Identity = identity.Notes,
+            Mapping = plan.Decisions,
+            FanChoices = plan.FanChoices,
             Readings = new ReadingSet
             {
                 Cpu = new CpuReadings
                 {
-                    Temperature = MapRole("cpu.temperature", config.Roles.CpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                    Temperature = MapRole("cpu.temperature", config.Roles.CpuTemperature, plan.CpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Utilization = new UtilizationReadings
                     {
-                        Total = MapRole("cpu.utilization.total", config.Roles.CpuUtilizationTotal, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
-                        Logical = MapList(config.Roles.CpuUtilizationLogical, "percent", byId, identity.Notes, sampledAtUtc, config)
+                        Total = MapRole("cpu.utilization.total", config.Roles.CpuUtilizationTotal, plan.CpuUtilizationTotal, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                        Logical = MapList(plan.CpuUtilizationLogical.Ids, plan.CpuUtilizationLogical.Binding, "percent", byId, identity.Notes, sampledAtUtc, config)
                     }
                 },
                 Gpu = new GpuReadings
                 {
-                    Temperature = MapRole("gpu.temperature", config.Roles.GpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
-                    Load = MapRole("gpu.load", config.Roles.GpuLoad, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                    Temperature = MapRole("gpu.temperature", config.Roles.GpuTemperature, plan.GpuTemperature, "celsius", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                    Load = MapRole("gpu.load", config.Roles.GpuLoad, plan.GpuLoad, "percent", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Vram = new VramReadings
                     {
-                        Used = MapRole("vram.used", config.Roles.VramUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
-                        Total = MapRole("vram.total", config.Roles.VramTotal, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config)
+                        Used = MapRole("vram.used", config.Roles.VramUsed, plan.VramUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                        Total = MapRole("vram.total", config.Roles.VramTotal, plan.VramTotal, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config)
                     }
                 },
                 Memory = new MemoryReadings
                 {
-                    Used = MapRole("memory.used", config.Roles.MemoryUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
+                    Used = MapRole("memory.used", config.Roles.MemoryUsed, plan.MemoryUsed, "bytes", byId, candidatesByRole, identity.Notes, sampledAtUtc, config),
                     Total = memoryTotal
                 },
                 Fans = new FanReadings
                 {
-                    Cpu = MapList(config.Roles.FanCpu, "rpm", byId, identity.Notes, sampledAtUtc, config),
-                    Gpu = MapList(config.Roles.FanGpu, "rpm", byId, identity.Notes, sampledAtUtc, config),
-                    Case = MapList(config.Roles.FanCase, "rpm", byId, identity.Notes, sampledAtUtc, config)
+                    Cpu = MapList(plan.FanCpu, plan.FanCpu.Count > 0 && config.Roles.FanCpu.Count > 0 ? "configured" : "none", "rpm", byId, identity.Notes, sampledAtUtc, config),
+                    Gpu = MapList(plan.FanGpu.Ids, plan.FanGpu.Binding, "rpm", byId, identity.Notes, sampledAtUtc, config),
+                    Case = MapList(plan.FanCase, plan.FanCase.Count > 0 && config.Roles.FanCase.Count > 0 ? "configured" : "none", "rpm", byId, identity.Notes, sampledAtUtc, config)
                 }
             },
             Derived = new DerivedMemory
             {
-                TotalBytes = derivedMemoryTotal
+                TotalBytes = derivedMemoryTotal,
+                VirtualTotalBytes = virtualMemoryTotal
             }
         };
     }
@@ -115,6 +132,7 @@ public static class SnapshotBuilder
     private static Reading MapRole(
         string role,
         string? configuredId,
+        Chosen semantic,
         string unit,
         IReadOnlyDictionary<string, SensorSample> byId,
         IReadOnlyDictionary<string, IReadOnlyList<SensorCandidate>> candidatesByRole,
@@ -125,6 +143,11 @@ public static class SnapshotBuilder
         if (configuredId is not null)
         {
             return MapOne(configuredId, unit, byId, identity, sampledAtUtc, config, "configured");
+        }
+
+        if (semantic.Binding == "semantic" && semantic.Id is not null)
+        {
+            return MapOne(semantic.Id, unit, byId, identity, sampledAtUtc, config, "semantic");
         }
 
         if (!config.AcceptUniqueCandidates
@@ -139,18 +162,19 @@ public static class SnapshotBuilder
 
     private static ReadingList MapList(
         IReadOnlyList<string> ids,
+        string binding,
         string unit,
         IReadOnlyDictionary<string, SensorSample> byId,
         IReadOnlyList<SensorIdentityNote> identity,
         DateTimeOffset sampledAtUtc,
         HostConfig config)
     {
-        if (ids.Count == 0)
+        if (ids.Count == 0 || binding == "none")
         {
             return ReadingFactory.UnmappedList();
         }
 
-        var items = ids.Select(id => MapOne(id, unit, byId, identity, sampledAtUtc, config, "configured")).ToArray();
+        var items = ids.Select(id => MapOne(id, unit, byId, identity, sampledAtUtc, config, binding)).ToArray();
         var status = items.All(i => i.Status == "ok") ? "ok" : "incomplete";
         return new ReadingList { Status = status, Items = items };
     }
@@ -269,13 +293,16 @@ public static class SnapshotBuilder
         };
     }
 
-    private static Reading? DeriveMemoryTotal(
+    private static Reading? DerivePair(
         IReadOnlyList<SensorSample> sensors,
         DateTimeOffset sampledAtUtc,
-        HostConfig config)
+        HostConfig config,
+        Func<SensorSample, bool> usedMatch,
+        Func<SensorSample, bool> availableMatch,
+        string scope)
     {
-        var used = sensors.Where(s => s.HardwareType == "Memory" && s.SensorType == "Data" && s.Name == "Memory Used").ToArray();
-        var available = sensors.Where(s => s.HardwareType == "Memory" && s.SensorType == "Data" && s.Name == "Memory Available").ToArray();
+        var used = sensors.Where(usedMatch).ToArray();
+        var available = sensors.Where(availableMatch).ToArray();
         if (used.Length == 0 && available.Length == 0)
         {
             return null;
@@ -291,11 +318,11 @@ public static class SnapshotBuilder
                 Binding = "derived",
                 Verified = false,
                 OperatorAsserted = false,
-                Formula = "Memory Used + Memory Available",
+                Formula = scope,
                 Inputs = used.Select(s => s.Id).Concat(available.Select(s => s.Id)).ToArray(),
                 Error = new ReadingError(
                     "ambiguous_memory_sensors",
-                    "Physical RAM total is Used plus Available. More than one sensor used that exact name, so no total was calculated.")
+                    scope + " More than one matching sensor was present, so no total was calculated.")
             };
         }
 
@@ -314,7 +341,7 @@ public static class SnapshotBuilder
                 Binding = "derived",
                 Verified = false,
                 OperatorAsserted = false,
-                Formula = "Memory Used + Memory Available, after each value was converted from binary gigabytes (2^30 bytes).",
+                Formula = scope + " Each value was converted from binary gigabytes (2^30 bytes).",
                 Inputs = [used[0].Id, available[0].Id],
                 Error = new ReadingError(
                     "incomplete_memory_pair",

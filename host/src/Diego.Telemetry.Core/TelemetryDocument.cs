@@ -43,6 +43,10 @@ public sealed class TelemetryDocument
     public ReadingSet Readings { get; init; } = new();
 
     public DerivedMemory Derived { get; init; } = new();
+
+    public IReadOnlyList<MappingDecision> Mapping { get; init; } = [];
+
+    public IReadOnlyList<FanChoice> FanChoices { get; init; } = [];
 }
 
 public sealed class SourceInfo
@@ -276,6 +280,42 @@ public sealed class FanReadings
 public sealed class DerivedMemory
 {
     public Reading? TotalBytes { get; init; }
+
+    /// <summary>Virtual-memory used plus available. Not the physical RAM total and not GPU VRAM.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Reading? VirtualTotalBytes { get; init; }
+}
+
+public sealed class MappingDecision
+{
+    public required string Role { get; init; }
+
+    public required string Outcome { get; init; }
+
+    public string? SensorId { get; init; }
+
+    public required string Reason { get; init; }
+
+    public bool Verified { get; init; }
+}
+
+public sealed class FanChoice
+{
+    public required string SensorId { get; init; }
+
+    public required string HardwareType { get; init; }
+
+    public required string HardwareName { get; init; }
+
+    public required string SourceName { get; init; }
+
+    public required string Classification { get; init; }
+
+    public required IReadOnlyList<string> PossibleRoles { get; init; }
+
+    public bool Verified { get; init; }
+
+    public required string Reason { get; init; }
 }
 
 public static class ReadingFactory
