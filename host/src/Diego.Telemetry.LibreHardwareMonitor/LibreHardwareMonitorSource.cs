@@ -230,6 +230,11 @@ public sealed class LibreHardwareMonitorSource : IHardwareSource
 
     private void CollectTree(IHardware hardware, List<SensorSample> sensors, bool suppressCpuLoad)
     {
+        // One walk of the instances already activated on this hardware node.
+        // NvidiaGpu activates both "GPU Memory" and "GPU Bus" at load index 3
+        // in its constructor. Update() changes values. It does not drop either
+        // instance, so both rows are kept here. SensorIdentity splits the shared
+        // library id later. Dropping one of them in this loop would hide a real sensor.
         foreach (var sensor in hardware.Sensors)
         {
             sensors.Add(ToSample(hardware, sensor, suppressCpuLoad));
