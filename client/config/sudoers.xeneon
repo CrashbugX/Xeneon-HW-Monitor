@@ -1,0 +1,4 @@
+# Install only if you want the unprivileged client to power off the Pi.
+# Copy to /etc/sudoers.d/xeneon with mode 440. Replace xeneon with the desktop user.
+# This allows one fixed program and no extra arguments.
+xeneon ALL=(root) NOPASSWD: /usr/local/sbin/xeneon-poweroff
