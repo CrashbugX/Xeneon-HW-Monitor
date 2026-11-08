@@ -1,0 +1,9 @@
+{
+  "piBaseUrl": "http://192.168.1.40:8766",
+  "shutdownTokenFile": "C:\\ProgramData\\Xeneon\\shutdown.token",
+  "graceSeconds": 45,
+  "absentBoundSeconds": 5,
+  "settleAfterHaltIssuedSeconds": 15,
+  "pollSeconds": 1,
+  "requestTimeoutSeconds": 3
+}
