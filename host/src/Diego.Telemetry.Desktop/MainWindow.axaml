@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Diego.Telemetry.Desktop.MainWindow"
+        Title="Xeneon HW Monitor"
+        Width="760" Height="1080"
+        Background="#12141a"
+        Foreground="#e8eaef"
+        WindowStartupLocation="CenterScreen">
+  <ScrollViewer>
+    <StackPanel Margin="28" Spacing="14">
+      <TextBlock Text="Xeneon HW Monitor" FontSize="28" FontWeight="SemiBold"/>
+      <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="Close hides this window. Exit stops the app. If the shell shows a tray icon, Open brings the window back. Install does not add a Windows logon shortcut."/>
+      <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="15"/>
+      <TextBlock x:Name="AdvisoryText" TextWrapping="Wrap" Foreground="#f6d434" FontSize="14"/>
+      <TextBlock Text="Poll interval (seconds, 0.5 to 3600)" FontSize="18" FontWeight="SemiBold"/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBox x:Name="PollBox" Width="120" Watermark="seconds"/>
+        <Button Content="Apply poll" Click="ApplyPoll"/>
+      </StackPanel>
+      <TextBlock Text="Network" FontSize="18" FontWeight="SemiBold"/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBox x:Name="PortBox" Width="120" Watermark="port"/>
+        <Button Content="Apply port" Click="ApplyPort"/>
+      </StackPanel>
+      <TextBlock x:Name="UrlText" TextWrapping="Wrap" FontFamily="Consolas, monospace"/>
+      <Button Content="Copy telemetry URL" Click="CopyUrl"/>
+      <TextBlock x:Name="FirewallText" TextWrapping="Wrap" Foreground="#f6d434"/>
+      <TextBlock x:Name="CopyStatus" Foreground="#9aa3b2"/>
+      <TextBlock Text="Pairing" FontSize="18" FontWeight="SemiBold"/>
+      <TextBlock x:Name="PendingText" TextWrapping="Wrap"/>
+      <Button Content="Approve pairing" Click="ApprovePairing"/>
+      <TextBlock Text="Paired devices" FontSize="18" FontWeight="SemiBold"/>
+      <TextBlock Text="Choose a device from the list. The list is filled from paired Pis. Revoke removes that device's token hash." TextWrapping="Wrap" Foreground="#9aa3b2"/>
+      <ComboBox x:Name="DeviceBox" HorizontalAlignment="Stretch" PlaceholderText="No paired device yet"/>
+      <Button Content="Revoke this device" Click="RevokeDevice"/>
+      <TextBlock Text="The service and Pi power-off stay off until you opt in separately. This window does not write fan curves." TextWrapping="Wrap" Foreground="#9aa3b2"/>
+      <Button Content="Exit" Click="ExitClick"/>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
