@@ -25,7 +25,8 @@ host/src/Diego.Telemetry.Host/           CLI, HTTP feed, shutdown coordinator, S
 host/tests/                  dotnet test
 host/config/example.host.json            sensor role map, no secrets
 host/config/example.shutdown.json        Pi poweroff wait policy, no secrets
-host/installer/                  NSIS setup. Product version 0.1.0. Service section is off. Unsigned.
+host/installer/                  NSIS setup. Product version 0.1.1. Service section is off. Unsigned.
+host/src/Diego.Telemetry.Core/SensorIdentity.cs   unique ids when LibreHardwareMonitor repeats one
 client/xeneon/thresholds.py  CPU and GPU color bands
 client/xeneon/contract.py    reject bad or reordered host documents
 client/xeneon/session.py     connecting / live / stale / disconnected / demo
@@ -55,6 +56,7 @@ client/tests/                python3 -m unittest
 | Card layout | `client/xeneon/static/app.css` positions. The stage is 2560 by 720 and `fitStage` scales it. |
 | What a missing sensor looks like | `client/xeneon/static/app.js` `paintTemp`, `paintLoad`, `paintCases`. Null stays an em dash. |
 | Host sensor roles | `host/config/example.host.json` after you copy ids from `list-sensors`. |
+| Repeated NVIDIA load id | `host/src/Diego.Telemetry.Core/SensorIdentity.cs`. `/gpu-nvidia/0/load/3` stays GPU Memory. GPU Bus is listed under a separate id. |
 | How long Windows waits for the Pi | `graceSeconds` in `host/config/example.shutdown.json`. Cap is 90 seconds in `ShutdownLimits`. |
 | Poweroff authentication | `client/xeneon/poweroff.py`. Only `action` `poweroff` is accepted. |
 
