@@ -1,3 +1,4 @@
+// Maps a hardware observation and the role config into the schema 1.0.0 JSON document.
 namespace Diego.Telemetry;
 
 public static class SnapshotBuilder

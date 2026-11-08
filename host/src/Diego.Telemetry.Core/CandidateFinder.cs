@@ -1,3 +1,4 @@
+// Lists possible role bindings. verified is always false. Header names are not treated as proof.
 namespace Diego.Telemetry;
 
 public static class CandidateFinder

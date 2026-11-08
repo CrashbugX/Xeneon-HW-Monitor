@@ -1,3 +1,4 @@
+// Serializer settings. Config files reject unknown fields. Documents keep nulls.
 using System.Text.Json;
 using System.Text.Json.Serialization;
 

@@ -1,3 +1,4 @@
+// Loads host.json. Rejects poll intervals under 0.5 seconds.
 using System.Text.Json;
 
 namespace Diego.Telemetry;

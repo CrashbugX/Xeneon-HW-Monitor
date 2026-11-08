@@ -1,3 +1,4 @@
+// JSON shape written by the host and checked by the Pi.
 using System.Text.Json.Serialization;
 
 namespace Diego.Telemetry;

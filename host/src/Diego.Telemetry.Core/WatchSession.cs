@@ -1,3 +1,4 @@
+// Repeats a sample until count or cancel, then closes the hardware source.
 namespace Diego.Telemetry;
 
 public enum WatchStop

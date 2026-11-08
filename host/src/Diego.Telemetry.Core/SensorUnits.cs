@@ -1,3 +1,4 @@
+// Converts LibreHardwareMonitor 0.9.6 units. Data is 2^30 bytes, SmallData is 2^20 bytes.
 namespace Diego.Telemetry;
 
 /// <summary>
