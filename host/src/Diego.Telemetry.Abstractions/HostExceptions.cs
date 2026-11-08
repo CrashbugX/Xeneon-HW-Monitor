@@ -1,3 +1,4 @@
+// Exit-code exceptions: config, hardware open, and real hardware unavailable.
 namespace Diego.Telemetry;
 
 public sealed class ConfigException : Exception

@@ -1,3 +1,4 @@
+// Sensor samples passed from a hardware source into the snapshot builder.
 namespace Diego.Telemetry;
 
 public enum SampleState

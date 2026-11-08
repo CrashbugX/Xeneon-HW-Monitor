@@ -1,3 +1,4 @@
+// Schema version string and the poll-interval limits.
 namespace Diego.Telemetry;
 
 public static class TelemetrySchema

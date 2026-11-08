@@ -1,3 +1,4 @@
+// Operator role map. Null means unmapped, which stays null in the JSON.
 namespace Diego.Telemetry;
 
 public sealed class HostConfig
