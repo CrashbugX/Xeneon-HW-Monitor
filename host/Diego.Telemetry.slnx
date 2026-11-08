@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/Diego.Telemetry.Abstractions/Diego.Telemetry.Abstractions.csproj" />
+  <Project Path="src/Diego.Telemetry.Core/Diego.Telemetry.Core.csproj" />
+  <Project Path="src/Diego.Telemetry.Fake/Diego.Telemetry.Fake.csproj" />
+  <Project Path="src/Diego.Telemetry.LibreHardwareMonitor/Diego.Telemetry.LibreHardwareMonitor.csproj" />
+  <Project Path="src/Diego.Telemetry.Host/Diego.Telemetry.Host.csproj" />
+  <Project Path="tests/Diego.Telemetry.Tests/Diego.Telemetry.Tests.csproj" />
+</Solution>
