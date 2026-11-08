@@ -7,7 +7,7 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-"$ROOT/scripts/install.sh"
+sh "$ROOT/scripts/install.sh"
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user restart xeneon-bridge.service || true
 fi
