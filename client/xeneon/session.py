@@ -38,6 +38,9 @@ class Session:
         if mode == "demo":
             self._seed_demo()
 
+    def document(self) -> dict | None:
+        return self._document
+
     def note_failure(self, kind: str, now: datetime) -> None:
         """Record a failed poll. kind is connecting-class, not a reason to show demo data.
 
@@ -138,7 +141,7 @@ class Session:
 
     def _apply_levels(self, doc: dict) -> None:
         cpu = _temp(doc, "cpu")
-        gpu = _temp(doc, "gpu")
+        gpu = _gpu_temperature(doc)
         if cpu is None:
             self.cpu_level = None
         else:
@@ -153,6 +156,11 @@ class Session:
             self.gpu_history = self.gpu_history[-60:]
 
     def _seed_demo(self) -> None:
+        self._document = {"inventory": [
+            {"id": "/lpc/nct6798d/fan/0", "sensorType": "Fan", "name": "Fan #1", "hardwareName": "Nuvoton NCT6798D", "hardwareType": "SuperIO", "status": "fresh", "normalizedValue": 870},
+            {"id": "/lpc/nct6798d/fan/1", "sensorType": "Fan", "name": "Fan #2", "hardwareName": "Nuvoton NCT6798D", "hardwareType": "SuperIO", "status": "fresh", "normalizedValue": 640},
+            {"id": "/gpu-nvidia/0/fan/0", "sensorType": "Fan", "name": "GPU Fan", "hardwareName": "NVIDIA GeForce RTX 2080 SUPER", "hardwareType": "GpuNvidia", "status": "fresh", "normalizedValue": 1100},
+        ]}
         self.cpu_history = [58, 60, 62, 64, 65, 68, 66, 64, 63, 64]
         self.gpu_history = [60, 61, 62, 63, 63, 64, 63, 63, 62, 63]
         self.cpu_level = next_level(None, self.cpu_history[-1], self.rise, self.fall)
@@ -161,6 +169,37 @@ class Session:
 
 def _temp(doc: dict, side: str) -> float | None:
     return reading_value(_path(doc, "readings", side, "temperature"))
+
+
+def _gpu_temperature(doc: dict) -> float | None:
+    """Role value first. If that role is empty, one fresh inventory GPU Core.
+
+    Hot Spot and Memory Junction are different sensors and are not used.
+    More than one GPU Core match is left blank instead of picking one.
+    """
+    mapped = _temp(doc, "gpu")
+    if mapped is not None:
+        return mapped
+    inventory = doc.get("inventory")
+    if not isinstance(inventory, list):
+        return None
+    matches = []
+    for sensor in inventory:
+        if not isinstance(sensor, dict):
+            continue
+        if sensor.get("sensorType") != "Temperature" or sensor.get("name") != "GPU Core":
+            continue
+        if sensor.get("hardwareType") not in {"GpuNvidia", "GpuAmd", "GpuIntel"}:
+            continue
+        if sensor.get("status") != "fresh":
+            continue
+        value = sensor.get("normalizedValue")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        matches.append(float(value))
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _path(doc: dict, *keys: str) -> object:

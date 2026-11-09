@@ -17,6 +17,7 @@ import fcntl
 import json
 import os
 import signal
+import subprocess
 import time
 from pathlib import Path
 
@@ -76,6 +77,8 @@ def browser_argv(browser: str, mode: str, port: int, profile: Path) -> list[str]
         "--disable-infobars",
         f"--app={url}",
     ]
+    if os.environ.get("WAYLAND_DISPLAY"):
+        argv.insert(1, "--ozone-platform=wayland")
     if mode == "fullscreen":
         argv.append("--kiosk")
     else:
@@ -149,15 +152,32 @@ def is_owned_browser(args: list[str], profile: Path) -> bool:
     return has_profile and local
 
 
-def is_owned_main(args: list[str], profile: Path) -> bool:
-    """The window process, not a renderer or GPU helper.
+def user_data_dirs(args: list[str]) -> list[str]:
+    found = []
+    for part in args:
+        if part.startswith("--user-data-dir="):
+            found.append(part.split("=", 1)[1])
+    return found
 
-    Chromium's first process can exit after handing the same profile to an
-    already-running window. That survivor is still an owned main process.
-    A normal Chromium window does not use this profile and is not a match.
+
+def is_owned_main(args: list[str], profile: Path) -> bool:
+    """The dashboard window, not a renderer and not someone else's Chromium.
+
+    A real second launch prints "Opening in existing browser session" and
+    exits. That is a handoff, not a dead window. This matches only when the
+    first --user-data-dir is the dedicated Xeneon profile. A wrapper that
+    also names the everyday profile is left alone.
     """
     if any(part.startswith("--type=") for part in args):
         return False
+    dirs = user_data_dirs(args)
+    if dirs:
+        first = Path(dirs[0])
+        wanted = Path(profile)
+        if first != wanted:
+            return False
+        if any(Path(extra) != wanted for extra in dirs[1:]):
+            return False
     return is_owned_browser(args, profile)
 
 
@@ -366,6 +386,122 @@ def stop_owned_mains(profile: Path, proc_root: Path | None = None, killer=None) 
 
 def _signal_term(pid: int) -> None:
     _signal(pid, signal.SIGTERM)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _spawn_browser(browser: str, mode: str, port: int, profile: Path) -> int:
+    argv = browser_argv(browser, mode, port, profile)
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    runtime = runtime_dir()
+    (runtime / "browser.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
+    return proc.pid
+
+
+def _wait_stable(started: int, profile: Path, timeout: float = 3.0) -> int | None:
+    """One owned window after a launch. A handoff exit is adopted, not relaunched."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        mains = owned_main_pids(profile)
+        alive = _pid_alive(started)
+        if alive and started in mains:
+            time.sleep(0.35)
+            if _pid_alive(started) and started in owned_main_pids(profile):
+                return started
+            continue
+        if not alive and len(mains) == 1:
+            return mains[0]
+        if not alive and not mains:
+            return None
+        if len(mains) > 1:
+            keep = max(mains)
+            for pid in mains:
+                if pid != keep:
+                    try:
+                        _signal_term(pid)
+                    except OSError:
+                        pass
+            return keep
+        time.sleep(0.05)
+    mains = owned_main_pids(profile)
+    return mains[0] if len(mains) == 1 else None
+
+
+def _mark_failed(previous: str | None) -> None:
+    restore = previous if previous in {"fullscreen", "windowed"} else "fullscreen"
+    write_mode(restore)
+    data = read_transition() or {}
+    write_transition({
+        "target": data.get("target"),
+        "revision": data.get("revision") or read_revision(),
+        "started": data.get("started") or time.time(),
+        "status": "failed",
+        "detail": "The window change did not finish. The dashboard was left in the last mode that actually started.",
+    })
+
+
+def apply_launched_mode(browser: str, port: int, profile: Path | None = None) -> dict:
+    """Reach the requested mode with one dashboard window.
+
+    Chromium exits a second launch after telling the existing profile to open
+    another window. This waits until the owned windows are gone before starting
+    the next one, and it does not start again when that starter exits into a
+    survivor. Other Chromium profiles are not signaled.
+    """
+    owned = profile or profile_dir()
+    mode = read_mode()
+    applied = read_applied_mode()
+    mains = owned_main_pids(owned)
+    if mode == applied and len(mains) == 1:
+        return {"ok": True, "stable": True, "mode": mode, "pid": mains[0]}
+    if mode == "paused":
+        stop_owned_mains(owned)
+        if not owned_main_pids(owned):
+            acknowledge("paused")
+            return {"ok": True, "stable": True, "mode": "paused"}
+        return {"ok": False, "stable": False, "mode": "paused", "detail": "The dashboard window is still open."}
+    if not browser:
+        return {"ok": False, "stable": False, "detail": "No Chromium or Firefox is available."}
+    if mode == applied and len(mains) > 1:
+        keep = max(mains)
+        for pid in mains:
+            if pid != keep:
+                try:
+                    _signal_term(pid)
+                except OSError:
+                    pass
+        _wait_gone([pid for pid in mains if pid != keep], Path("/proc"))
+        return {"ok": True, "stable": True, "mode": mode, "pid": keep}
+    stop_owned_mains(owned)
+    if owned_main_pids(owned):
+        _mark_failed(applied)
+        return {"ok": False, "stable": False, "detail": "The previous dashboard window did not close."}
+    if read_mode() != mode:
+        return {"ok": False, "stable": False, "detail": "The requested mode changed."}
+    launched = _spawn_browser(browser, mode, port, owned)
+    stable = _wait_stable(launched, owned)
+    if stable and read_mode() == mode and stable in owned_main_pids(owned):
+        acknowledge(mode)
+        return {"ok": True, "stable": True, "mode": mode, "pid": stable}
+    stop_owned_mains(owned)
+    _mark_failed(applied)
+    if applied in {"fullscreen", "windowed"} and read_mode() == applied and not owned_main_pids(owned):
+        restored = _spawn_browser(browser, applied, port, owned)
+        survivor = _wait_stable(restored, owned)
+        if survivor:
+            acknowledge(applied)
+    return {
+        "ok": False,
+        "stable": False,
+        "mode": read_mode(),
+        "detail": "The window change did not finish. The dashboard was left in the last mode that actually started.",
+    }
 
 
 def _signal(pid: int, sig: int) -> None:
@@ -790,6 +926,13 @@ def main(argv: list[str] | None = None) -> int:
         data = reconcile_transition()
         print("" if not data else data.get("status", ""))
         return 0
+    if command == "apply":
+        if len(args) != 3:
+            print("usage: apply BROWSER PORT", file=sys.stderr)
+            return 2
+        result = apply_launched_mode(args[1], int(args[2]))
+        print(result.get("detail") or result.get("mode") or "")
+        return 0 if result.get("stable") else 1
     if command == "exec-browser":
         if len(args) != 4:
             return 2

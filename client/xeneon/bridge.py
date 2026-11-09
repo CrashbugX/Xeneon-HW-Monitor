@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from xeneon.kioskctl import callback_page, request_action, window_state
+from xeneon.keyboard import toggle as keyboard_toggle
+from xeneon.kioskctl import callback_page, request_action, runtime_dir, window_state
 from xeneon.session import Session
 from xeneon.wifi import read_wifi
 
@@ -81,6 +82,8 @@ class Bridge:
             "spotifyClientIdSet": client_id_set,
             "spotifyConnected": spotify_connected,
             "spotifyRedirectUri": redirect,
+            "theme": self.setup.theme if self.setup is not None else "night",
+            "fans": self.setup.fan_rows(self.session.document()) if self.setup is not None else [],
             "demo": self.session.mode == "demo",
         }
 
@@ -100,6 +103,9 @@ class Bridge:
             return status, {"ok": status == 200, "error": None if status == 200 else reason}
         if path == "/api/window":
             result = request_action(str(body.get("action") or ""))
+            return (200 if result.get("ok") else 400), result
+        if path == "/api/keyboard":
+            result = keyboard_toggle(str(body.get("action") or ""), runtime_dir())
             return (200 if result.get("ok") else 400), result
         if path == "/api/spotify/action":
             if self.session.mode == "demo" or self.spotify is None:
@@ -157,6 +163,8 @@ class Bridge:
                 self.session.note_failure("invalid", now)
                 continue
             self.session.note_document(payload, now)
+            if self.setup is not None:
+                self.setup.observe_document(payload)
             if self.spotify is not None and self.session.mode != "demo":
                 self.session.set_live_spotify(self.spotify.poll())
 
@@ -171,6 +179,9 @@ def _page_factory(bridge: Bridge):
             if path == "/api/view":
                 wifi = {"status": "unavailable", "ssid": None, "bars": None, "detail": "demo"} if bridge.session.mode == "demo" else read_wifi()
                 body = bridge.session.view(datetime.now(timezone.utc), wifi)
+                if bridge.setup is not None:
+                    body["fanBoard"] = bridge.setup.fan_rows(bridge.session.document())
+                    body["theme"] = bridge.setup.theme
                 _json(self, 200, body)
                 return
             if path == "/health":

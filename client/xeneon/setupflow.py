@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from xeneon.discover import discover
+from xeneon.fans import apply_edit, catalog, default_pref, merge, observe
 from xeneon.spotify import PUBLIC_SPOTIFY_CLIENT_ID, redirect_uri, resolve_client_id
 
 
@@ -22,6 +23,8 @@ class SetupFlow:
         self.modules = {"cpu": True, "gpu": True, "load": True, "memory": True, "fans": True, "spotify": True}
         self.hosts: list[dict] = []
         self.client_id = PUBLIC_SPOTIFY_CLIENT_ID
+        self.theme = "night"
+        self.fan_prefs: dict = {}
         self._pairing_id = ""
         self._load()
 
@@ -70,28 +73,72 @@ class SetupFlow:
             if bridge.spotify is not None:
                 bridge.spotify.logout()
             return 200, {"ok": True}
+        if path == "/api/setup/theme":
+            theme = str(body.get("theme") or "")
+            if theme not in {"day", "night"}:
+                return 400, {"ok": False, "error": "theme"}
+            self.theme = theme
+            self._save()
+            return 200, {"ok": True, "theme": self.theme}
+        if path == "/api/setup/fan":
+            sensor_id = str(body.get("id") or "")
+            if not sensor_id or len(sensor_id) > 180 or "/" not in sensor_id:
+                return 400, {"ok": False, "error": "fan"}
+            pref = dict(default_pref(sensor_id))
+            stored = self.fan_prefs.get(sensor_id)
+            if isinstance(stored, dict):
+                pref.update(stored)
+            self.fan_prefs[sensor_id] = apply_edit(pref, body)
+            self._save()
+            return 200, {"ok": True, "fan": self.fan_prefs[sensor_id]}
         return 404, {"ok": False, "error": "not_found"}
+
+    def fan_rows(self, document: dict | None) -> list[dict]:
+        return merge(catalog(document), self.fan_prefs)
+
+    def observe_document(self, document: dict | None) -> None:
+        changed = False
+        for sensor in catalog(document):
+            pref = dict(default_pref(sensor["id"]))
+            stored = self.fan_prefs.get(sensor["id"])
+            if isinstance(stored, dict):
+                pref.update(stored)
+            before = (pref.get("minRpm"), pref.get("maxRpm"), pref.get("samples"))
+            observe(pref, sensor.get("rpm"))
+            after = (pref.get("minRpm"), pref.get("maxRpm"), pref.get("samples"))
+            if after != before:
+                self.fan_prefs[sensor["id"]] = pref
+                changed = True
+        if changed:
+            self._save()
 
     def _pair(self, body: dict, bridge) -> tuple[int, dict]:
         base = str(body.get("baseUrl") or "").rstrip("/")
         code = str(body.get("code") or "").strip()
         if not base.startswith("http://"):
-            return 400, {"ok": False, "error": "address"}
+            return 400, {
+                "ok": False,
+                "error": "address",
+                "detail": "Choose the discovered PC first. Request code uses that selected host. The manual address is only for Find hosts.",
+            }
         if not self._pairing_id:
-            status, payload = _post(base + "/v1/pair/begin", {"displayName": socket.gethostname() or "xeneon-pi"})
+            begin_url = base + "/v1/pair/begin"
+            status, payload = _post(begin_url, {"displayName": socket.gethostname() or "xeneon-pi"})
             if status != 200:
-                return status, {"ok": False, "error": payload.get("error", {}).get("code", "pair_begin")}
+                return status, _begin_failure(status, payload, begin_url)
             self._pairing_id = str(payload.get("pairingId") or "")
             return 200, {"ok": True, "step": "enter-code", "detail": "Approve the request on the Windows host, then enter the code shown there."}
         if not code:
-            return 400, {"ok": False, "error": "code_required"}
+            return 400, {"ok": False, "error": "code_required", "detail": "Enter the code shown on the Windows PC."}
         status, payload = _post(base + "/v1/pair/complete", {"pairingId": self._pairing_id, "code": code})
         if status != 200:
             error = payload.get("error", {})
             code_name = error.get("code") if isinstance(error, dict) else "pair_complete"
+            message = error.get("message") if isinstance(error, dict) else ""
             if code_name != "awaiting_approval":
                 self._pairing_id = ""
-            return status, {"ok": False, "error": code_name}
+            detail = message or "The pairing code was not accepted."
+            return status, {"ok": False, "error": code_name, "detail": detail}
         token = str(payload.get("deviceToken") or "")
         if not token:
             return 502, {"ok": False, "error": "missing_token"}
@@ -121,6 +168,10 @@ class SetupFlow:
             for key in self.modules:
                 if key in modules:
                     self.modules[key] = bool(modules[key])
+        theme = loaded.get("theme")
+        self.theme = theme if theme in {"day", "night"} else "night"
+        prefs = loaded.get("fanPrefs")
+        self.fan_prefs = prefs if isinstance(prefs, dict) else {}
         stored = loaded.get("spotifyClientId")
         self.client_id = resolve_client_id(stored)
         if not (isinstance(stored, str) and stored.strip()):
@@ -137,6 +188,8 @@ class SetupFlow:
                 loaded = {}
         loaded["modules"] = self.modules
         loaded["spotifyClientId"] = self.client_id
+        loaded["theme"] = self.theme
+        loaded["fanPrefs"] = self.fan_prefs
         loaded["localPort"] = loaded.get("localPort") or 8734
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.config_path.with_suffix(".json.tmp")
@@ -156,6 +209,31 @@ def probe_manual(address: str, port: int) -> dict | None:
     if not isinstance(payload, dict):
         return None
     return {"name": payload.get("name") or address, "port": payload.get("port") or port, "baseUrl": f"http://{address}:{port}"}
+
+
+def _begin_failure(status: int, payload: dict, url: str) -> dict:
+    """Human text for a failed begin. The raw word pair_begin is not a status."""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        code = str(error.get("code") or "").strip() or "pair_begin"
+        if message:
+            return {"ok": False, "error": code, "detail": message}
+    if status == 0:
+        return {
+            "ok": False,
+            "error": "unreachable",
+            "detail": (
+                "The PC did not answer " + url + ". "
+                "Finding it by discovery does not open this TCP port. "
+                "The Windows window stays empty until this request arrives."
+            ),
+        }
+    return {
+        "ok": False,
+        "error": "pair_begin",
+        "detail": "The PC refused the pairing request. The Windows window stays empty until a request arrives.",
+    }
 
 
 def _post(url: str, payload: dict) -> tuple[int, dict]:
