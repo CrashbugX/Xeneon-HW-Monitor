@@ -44,7 +44,9 @@ grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
 
 Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
 
-The gear at the top right opens Setup, the fullscreen control, day or night, and Close dashboard. Close dashboard is in its own block under a line. The fullscreen control says **Fullscreen** or **Exit fullscreen** from the mode the owned launcher last started. It turns off on the first click and stays off until that launcher is actually in the new mode. A second click, including from an older tab, does not open another window. **Close dashboard** closes the owned window for this login. The bridge, pairing, and Spotify login stay. Reopen from **Xeneon HW Monitor**. The next login starts fullscreen again. If the page is still visible, the window did not close.
+The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Fullscreen uses the browser’s own fullscreen control from that click. Chromium is not opened again. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the window does not change, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. Close dashboard still pauses the owned window. The bridge, pairing, and Spotify login stay.
+
+If the PC’s address changes, the Pi repeats discovery on UDP 8764 and tries the stored token. A host that accepts the token is used. Pairing is not repeated. A live connection has no banner. **Disconnected from PC** appears when samples stop. The keyboard button is visible only while Setup is open. Click the dim area around Setup to close it.
 
 Day and night are a saved client setting. They do not follow the clock. Fans in Setup list every Fan sensor from the host inventory. The role stays unknown until you choose CPU, GPU, case, or other. Seen RPM values are samples, not a physical minimum or maximum. This app does not write fan duty.
 
