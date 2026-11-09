@@ -225,7 +225,8 @@ class KioskIdentityTests(unittest.TestCase):
         profile = Path("/tmp/xeneon-owned-profile")
         full = browser_argv("chromium", "fullscreen", 8734, profile)
         window = browser_argv("chromium", "windowed", 8734, profile)
-        self.assertIn("--kiosk", full)
+        self.assertNotIn("--kiosk", full)
+        self.assertIn("--start-fullscreen", full)
         self.assertNotIn("--kiosk", window)
         self.assertTrue(any(part.startswith("--app=http://127.0.0.1:8734/") for part in window))
         self.assertTrue(any(part.startswith("--user-data-dir=") for part in window))
@@ -353,8 +354,9 @@ class HandoffTests(unittest.TestCase):
                 write_mode("windowed", runtime)
                 third = apply_launched_mode(str(browser), 8734, profile)
                 self.assertTrue(third["stable"])
-                windowed = [line for line in log.read_text(encoding="utf-8").splitlines() if "--new-window" in line and "--hold" not in line]
-                self.assertEqual(1, len(windowed))
+                parents = [line for line in log.read_text(encoding="utf-8").splitlines() if "--hold" not in line]
+                self.assertEqual(1, len(parents))
+                self.assertFalse(any("--new-window" in line for line in parents))
             finally:
                 from xeneon.kioskctl import stop_owned_mains
                 stop_owned_mains(profile)
@@ -392,11 +394,11 @@ class FakeBrowserSmokeTests(unittest.TestCase):
             proc = subprocess.Popen(["sh", str(script), "supervise"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 for _ in range(50):
-                    if log.exists() and "--kiosk" in log.read_text(encoding="utf-8"):
+                    if log.exists() and "--start-fullscreen" in log.read_text(encoding="utf-8"):
                         break
                     import time
                     time.sleep(0.05)
-                self.assertIn("--kiosk", log.read_text(encoding="utf-8"))
+                self.assertIn("--start-fullscreen", log.read_text(encoding="utf-8"))
                 before = log.read_text(encoding="utf-8").count("\n")
                 subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "request", "fullscreen"], env=env)
                 time.sleep(5)
@@ -404,9 +406,10 @@ class FakeBrowserSmokeTests(unittest.TestCase):
                 subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "set-mode", "windowed"], env=env)
                 subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "poke"], env=env)
                 import time
-                time.sleep(0.4)
+                time.sleep(1.2)
                 text = log.read_text(encoding="utf-8")
-                self.assertIn("--new-window", text)
+                self.assertNotIn("--new-window", text)
+                self.assertEqual(before, text.count("\n"))
                 subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "set-mode", "paused"], env=env)
                 subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "poke"], env=env)
                 time.sleep(0.6)
@@ -426,7 +429,7 @@ class FakeBrowserSmokeTests(unittest.TestCase):
                 subprocess.check_call(["sh", str(script), "resume"], env=env)
                 time.sleep(2)
                 resumed = log.read_text(encoding="utf-8")
-                self.assertGreater(resumed.count("--kiosk"), 0)
+                self.assertGreater(resumed.count("--start-fullscreen"), 0)
                 self.assertGreater(resumed.count("\n"), after)
             finally:
                 proc.send_signal(subprocess.signal.SIGTERM)
@@ -463,7 +466,7 @@ class FakeBrowserSmokeTests(unittest.TestCase):
             try:
                 import time
                 for _ in range(50):
-                    if log.exists() and "--kiosk" in log.read_text(encoding="utf-8"):
+                    if log.exists() and "--start-fullscreen" in log.read_text(encoding="utf-8"):
                         break
                     time.sleep(0.05)
                 def parents():
@@ -481,10 +484,9 @@ class FakeBrowserSmokeTests(unittest.TestCase):
                 for _ in range(5):
                     subprocess.check_call(["python3", "-m", "xeneon.kioskctl", "request", "windowed"], env=env)
                 time.sleep(2)
-                self.assertEqual(1, len([line for line in parents() if "--new-window" in line]))
-                time.sleep(4)
-                self.assertEqual(1, len([line for line in parents() if "--new-window" in line]))
-                self.assertEqual(2, len(parents()))
+                self.assertEqual(0, len([line for line in parents() if "--new-window" in line]))
+                time.sleep(3)
+                self.assertEqual(1, len(parents()))
             finally:
                 proc.send_signal(subprocess.signal.SIGTERM)
                 proc.wait(timeout=3)

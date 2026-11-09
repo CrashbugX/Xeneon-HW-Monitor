@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from xeneon.discover import select_live_host
+from xeneon.kioskctl import display_mode
 from xeneon.setupflow import SetupFlow
 
 
@@ -92,6 +94,24 @@ class PairingRequestTests(unittest.TestCase):
                 self.assertNotEqual("pair_begin", again["detail"])
         finally:
             server.shutdown()
+
+    def test_rediscover_uses_the_token_and_prefers_the_saved_name(self):
+        found = [
+            {"name": "OTHER", "baseUrl": "http://10.0.0.2:8765"},
+            {"name": "SOULERPC", "baseUrl": "http://10.0.0.9:8765"},
+        ]
+        chosen = select_live_host(found, lambda base: base.endswith("10.0.0.9:8765"), "SOULERPC")
+        self.assertEqual("http://10.0.0.9:8765", chosen["baseUrl"])
+        self.assertIsNone(select_live_host(found, lambda base: False, "SOULERPC"))
+
+    def test_fullscreen_request_does_not_relaunch(self):
+        with TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            result = display_mode("fullscreen", False, runtime)
+            self.assertFalse(result["signaled"])
+            self.assertFalse(result["pending"])
+            self.assertIn("not relaunched", result["detail"])
+            self.assertIn("page requested fullscreen", (runtime / "window.log").read_text(encoding="utf-8"))
 
     def test_empty_selection_does_not_use_the_manual_placeholder(self):
         with TemporaryDirectory() as tmp:
