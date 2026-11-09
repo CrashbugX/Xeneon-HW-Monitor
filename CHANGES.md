@@ -1,26 +1,23 @@
-# Client 0.2.1
+# Client 0.2.2
 
-Client-only patch against the 0.2.0 tree (`4dfdc64`). The Windows host and its installer are unchanged. No installer is part of this update.
+Delta against client 0.2.1. The Windows host and its installer are unchanged.
 
 ## New
 
-- `client/xeneon/kioskctl.py` — owned-browser commands, pid checks, pause file, Spotify return page
-- `client/tests/test_kiosk.py` — action auth, origin, pid ownership, window mode, pause, resume, launchers, tokens, callback
+None.
 
 ## Changed
 
-- `client/scripts/kiosk.sh` — one supervisor instead of the `while true` kiosk loop
-- `client/scripts/install.sh` — one labwc line, menu shortcut, stops the old launcher
-- `client/scripts/restart-bridge.sh` — restarts `python -m xeneon` only
-- `client/scripts/update-from-github.sh` — stops an owned supervisor before replacing the cached tree
-- `client/scripts/uninstall.sh` — stops the owned window and removes the labwc line and menu item
-- `client/xeneon/__init__.py` — client version 0.2.1
-- `client/xeneon/bridge.py` — `POST /api/window` and the Spotify return page
-- `client/xeneon/static/index.html` — Exit fullscreen, Fullscreen, Close dashboard
-- `client/xeneon/static/app.js` — those actions, and no claim that a window closed while it is still open
-- `client/xeneon/static/app.css` — fixed window bar
-- `client/README.md` — launcher notes
-- `docs/ONBOARDING.md` — Pi section
+- `client/xeneon/kioskctl.py` — one window transition at a time, acknowledged only when the owned launcher is in that mode
+- `client/scripts/kiosk.sh` — adopt a window whose starter process already exited, instead of opening another
+- `client/xeneon/bridge.py` — `GET /api/window` reports that launcher state
+- `client/xeneon/static/index.html` — one fullscreen toggle, Close dashboard separated
+- `client/xeneon/static/app.js` — buttons stay off until the launcher ack, including after a reload
+- `client/xeneon/static/app.css` — gap before Close dashboard, including a narrow row
+- `client/xeneon/__init__.py` — client version 0.2.2
+- `client/tests/test_kiosk.py` — repeated clicks, pending ack, labels, and the extra-window loop
+- `client/README.md` — launcher note
+- `docs/ONBOARDING.md` — Pi controls
 - `CHANGES.md` — this file
 
 ## Deleted
@@ -29,8 +26,4 @@ None.
 
 ## Behavior
 
-Exit fullscreen relaunches the owned Chromium without `--kiosk`. Fullscreen puts `--kiosk` back. Close dashboard sets a pause for this login so the two-second loop cannot reopen the window. The bridge, pairing, and Spotify files stay. The next login starts fullscreen again. Reopen from the **Xeneon HW Monitor** menu item.
-
-The Spotify callback is a Return to dashboard page. It also navigates to `/` and removes the code from the address bar. Errors use that same page.
-
-Updating with the existing `sh client/scripts/update-from-github.sh` runs the new install script, which stops the old `kiosk.sh` loop when that process argument is a real `scripts/kiosk.sh` file. It does not stop a normal Chromium window.
+Fullscreen while the owned window is already fullscreen does not launch another Chromium. A starter process that exits and leaves the dashboard window open is adopted. Further clicks, including from an older tab, do not queue another launch while that change is unfinished. The toggle and Close dashboard stay disabled until the launcher records the mode it actually started, or until that change times out and the last started mode is kept. The button says **Exit fullscreen** after a fullscreen ack and **Fullscreen** after a windowed ack.
