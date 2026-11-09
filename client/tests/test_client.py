@@ -171,6 +171,19 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("test-token", script)
         self.assertIn("150ms", (CLIENT / "xeneon" / "static" / "app.css").read_text(encoding="utf-8"))
 
+    def test_spotify_card_and_gear_menu_match_the_page(self):
+        script = (CLIENT / "xeneon" / "static" / "app.js").read_text(encoding="utf-8")
+        css = (CLIENT / "xeneon" / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("object-fit: cover", css)
+        self.assertIn("spot-row", css)
+        self.assertIn("/icons/", script)
+        self.assertIn("shuffle_on", script)
+        self.assertIn("function closeGearMenu", script)
+        self.assertNotIn("M14 4h6v6", script)
+        icons = CLIENT / "xeneon" / "static" / "icons"
+        for name in ("shuffle_off.png", "shuffle_on.png", "repeat_off.png", "repeat_on.png", "play.png", "pause.png", "previous.png", "next.png"):
+            self.assertTrue((icons / name).is_file(), name)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")

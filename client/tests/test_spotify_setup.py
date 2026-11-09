@@ -104,12 +104,18 @@ class SpotifyTests(unittest.TestCase):
             ]))
             paused = session.poll(now=10_000)
             self.assertTrue(paused["paused"])
-            self.assertIsNone(paused["title"])
-            self.assertIsNone(paused["art"])
-            self.assertIsNone(paused["position"])
-            self.assertEqual("Nothing playing", paused["detail"])
+            self.assertEqual("Hidden", paused["title"])
+            self.assertEqual("Secret", paused["artist"])
+            self.assertEqual("https://i.scdn.co/image/abc", paused["art"])
+            self.assertEqual(1, paused["position"])
+            self.assertEqual("Paused", paused["detail"])
             self.assertTrue(paused["canPlay"])
             self.assertFalse(paused["canPause"])
+            idle = SpotifySession(path, "public-client", 8734, ScriptedTransport([(204, {}, {})]))
+            nothing = idle.poll(now=10_000)
+            self.assertIsNone(nothing["title"])
+            self.assertIsNone(nothing["art"])
+            self.assertEqual("Nothing playing", nothing["detail"])
 
     def test_pause_play_shuffle_and_repeat_follow_the_player(self):
         playing = {
@@ -142,7 +148,8 @@ class SpotifyTests(unittest.TestCase):
                 (200, paused_body, {}),
             ]))
             paused = play.poll(now=1000)
-            self.assertIsNone(paused["title"])
+            self.assertEqual("Night", paused["title"])
+            self.assertIsNone(paused["art"])
             self.assertTrue(paused["canPlay"])
             self.assertFalse(paused["canPause"])
             self.assertEqual((409, "That control is not available in this state."), play.command("pause", now=1000))
@@ -234,6 +241,12 @@ class DiscoveryAndCsrfTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(request, timeout=2)
             self.assertEqual(403, caught.exception.code)
+            icon = urllib.request.urlopen(f"http://127.0.0.1:{port}/icons/shuffle_off.png", timeout=2)
+            self.assertEqual(200, icon.status)
+            self.assertTrue(icon.read(8).startswith(b"\x89PNG"))
+            with self.assertRaises(urllib.error.HTTPError) as missing:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/icons/not-a-glyph.png", timeout=2)
+            self.assertEqual(404, missing.exception.code)
         finally:
             bridge.stop()
 
