@@ -24,6 +24,17 @@ from xeneon.session import Session
 from xeneon.wifi import read_wifi
 
 STATIC = Path(__file__).resolve().parent / "static"
+# PrestoDeck transport PNGs. Off is white, on is Spotify green, baked into the file.
+_ICON_FILES = frozenset({
+    "shuffle_off.png",
+    "shuffle_on.png",
+    "repeat_off.png",
+    "repeat_on.png",
+    "previous.png",
+    "next.png",
+    "play.png",
+    "pause.png",
+})
 
 
 class Bridge:
@@ -276,6 +287,15 @@ def _page_factory(bridge: Bridge):
                 return
             if path == "/demo-art.png":
                 _file(self, STATIC / "demo-art.png", "image/png")
+                return
+            # Transport glyphs for the Spotify card. The name is a fixed list,
+            # so a request cannot walk out of static/icons.
+            if path.startswith("/icons/"):
+                name = path[len("/icons/"):]
+                if name in _ICON_FILES:
+                    _file(self, STATIC / "icons" / name, "image/png")
+                    return
+                _json(self, 404, {"ok": False, "error": "not_found"})
                 return
             if path == "/art":
                 _art(self, bridge)

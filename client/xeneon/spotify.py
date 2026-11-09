@@ -140,7 +140,7 @@ class SpotifySession:
             self.token_path.unlink()
 
     def poll(self, now: float | None = None) -> dict:
-        """Return a dashboard spotify object. Paused playback hides title, art, and progress."""
+        """Return a dashboard spotify object. A paused track keeps its cover. Idle has none."""
         now = time.time() if now is None else now
         if self.needs_client_id():
             return _view(False, "Add the Spotify Client ID in Setup. Do not paste a client secret.", None)
@@ -169,6 +169,7 @@ class SpotifySession:
             self._retry_after = now + _retry_after(headers)
             return _view(True, "Spotify rate limit. Controls wait for Retry-After.", None, rate_limited=True)
         if status == 204:
+            # No player at all. This is the idle card, not a paused track.
             return _view(True, "Nothing playing", None, paused=True)
         if status == 404:
             return _view(True, "No active Spotify device. Open Spotify on a phone or computer.", None, no_device=True)
@@ -258,32 +259,44 @@ class SpotifySession:
 
 
 def _from_player(body: dict) -> dict:
+    """One player payload. Pause keeps the track so the card can stay on that cover.
+
+    Play and pause commands do not change: pause is offered only while
+    is_playing is true, and play only while it is false. An empty item is idle.
+    """
     playing = bool(body.get("is_playing"))
     item = body.get("item") if isinstance(body.get("item"), dict) else None
+    track = _track(item, body.get("progress_ms"))
     if not playing:
-        return _view(True, "Paused", None, paused=True, shuffle=_shuffle(body), repeat=_repeat(body))
-    artists = ""
-    art = None
-    title = None
-    if item:
-        title = item.get("name")
-        names = [artist.get("name") for artist in item.get("artists") or [] if isinstance(artist, dict) and artist.get("name")]
-        artists = ", ".join(names)
-        images = ((item.get("album") or {}).get("images") or []) if isinstance(item.get("album"), dict) else []
-        if images and isinstance(images[0], dict):
-            url = images[0].get("url") or ""
-            if url.startswith(ART_PREFIXES):
-                art = url
-    progress = body.get("progress_ms")
-    duration = item.get("duration_ms") if item else None
+        return _view(True, "Paused", track, paused=True, shuffle=_shuffle(body), repeat=_repeat(body))
     return _view(
         True,
         "Playing",
-        {"title": title, "artist": artists, "art": art, "position": _seconds(progress), "duration": _seconds(duration)},
+        track,
         playing=True,
         shuffle=_shuffle(body),
         repeat=_repeat(body),
     )
+
+
+def _track(item: dict | None, progress_ms: object) -> dict | None:
+    """Title, artist, and a Spotify-hosted cover. Other image hosts are dropped."""
+    if not item:
+        return None
+    names = [artist.get("name") for artist in item.get("artists") or [] if isinstance(artist, dict) and artist.get("name")]
+    art = None
+    images = ((item.get("album") or {}).get("images") or []) if isinstance(item.get("album"), dict) else []
+    if images and isinstance(images[0], dict):
+        url = images[0].get("url") or ""
+        if url.startswith(ART_PREFIXES):
+            art = url
+    return {
+        "title": item.get("name"),
+        "artist": ", ".join(names),
+        "art": art,
+        "position": _seconds(progress_ms),
+        "duration": _seconds(item.get("duration_ms")),
+    }
 
 
 def _command_request(action: str, current: dict) -> tuple[str | None, str, dict | None]:
@@ -308,7 +321,10 @@ def _command_request(action: str, current: dict) -> tuple[str | None, str, dict 
 def _view(connected: bool, detail: str, track: dict | None, playing: bool = False, paused: bool = False, shuffle: str = "off", repeat: str = "off", rate_limited: bool = False, no_device: bool = False, premium: bool = False, forbidden: bool = False, failed: bool = False) -> dict:
     controls = connected and playing and not rate_limited and not no_device and not premium and not forbidden and not failed
     paused_controls = connected and paused and not rate_limited and not no_device and not premium and not forbidden and not failed
-    show = track if playing else None
+    # A paused track still has a cover. Idle (no item) does not.
+    show = track if (playing or paused) and _track_visible(track) else None
+    if paused and show is None:
+        detail = "Nothing playing"
     return {
         "connected": connected,
         "demo": False,
@@ -327,12 +343,18 @@ def _view(connected: bool, detail: str, track: dict | None, playing: bool = Fals
         "canSkip": controls or paused_controls,
         "canShuffle": controls or paused_controls,
         "canRepeat": controls or paused_controls,
-        "detail": "Nothing playing" if paused else detail,
+        "detail": detail,
         "rateLimited": rate_limited,
         "noDevice": no_device,
         "premiumRequired": premium,
         "album": None,
     }
+
+
+def _track_visible(track: dict | None) -> bool:
+    if not track:
+        return False
+    return bool(track.get("title") or track.get("artist") or track.get("art"))
 
 
 def _shuffle(body: dict) -> str:
