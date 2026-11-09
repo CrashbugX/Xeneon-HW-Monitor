@@ -100,14 +100,19 @@ def browser_argv(browser: str, mode: str, port: int, profile: Path) -> list[str]
         # labwc is Wayland. This does not turn on --kiosk, which ignores the
         # page Fullscreen API and forced a relaunch to leave the mode.
         argv.insert(1, "--ozone-platform=wayland")
-    # Explicit size stops Chromium from restoring a small saved square.
-    # The XENEON panel is 2560x720. Windowed mode uses that full size too.
+    # Size comes from the output this window is actually on. Forcing 2560x720
+    # together with --start-fullscreen made a 1920x1080 headless output report
+    # a drifting viewport and a vertical layout. The page still scales a
+    # 2560x720 stage, so a real XENEON at that size fills the screen exactly.
     width, height = output_size()
-    argv.extend([f"--window-size={width},{height}", "--window-position=0,0"])
+    if width and height:
+        argv.extend([f"--window-size={width},{height}", "--window-position=0,0"])
     if mode == "fullscreen":
         argv.append("--start-fullscreen")
     else:
         argv.append("--new-window")
+        if not (width and height):
+            argv.append("--start-maximized")
     return argv
 
 
@@ -234,15 +239,26 @@ def focus_existing() -> str:
     return "lock held; focus requested"
 
 
-def output_size() -> tuple[int, int]:
-    """Panel size unless XENEON_WINDOW_SIZE is WxH. A square default is not used."""
-    raw = os.environ.get("XENEON_WINDOW_SIZE", "2560x720")
+def output_size() -> tuple[int, int] | tuple[None, None]:
+    """WxH of the output we are on. Empty unless wlr-randr or XENEON_OUTPUT_SIZE said so.
+
+    There is no 2560x720 guess. A headless NOOP-1 at 1920x1080 must stay 1920x1080.
+    """
+    raw = os.environ.get("XENEON_OUTPUT_SIZE") or os.environ.get("XENEON_WINDOW_SIZE") or ""
     parts = raw.lower().split("x")
     if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
         width, height = int(parts[0]), int(parts[1])
         if width >= 320 and height >= 240:
             return width, height
-    return 2560, 720
+    return None, None
+
+
+def current_output_size(text: str) -> tuple[int, int] | None:
+    """First enabled output's current mode. Does not change the mode."""
+    for output in parse_wlr_randr(text):
+        if output.get("enabled") and output.get("current"):
+            return output["current"]
+    return None
 
 
 def clear_window_placement(profile: Path) -> None:
@@ -343,30 +359,51 @@ def is_owned_browser(args: list[str], profile: Path) -> bool:
 
 def user_data_dirs(args: list[str]) -> list[str]:
     found = []
-    for part in args:
+    for index, part in enumerate(args):
         if part.startswith("--user-data-dir="):
             found.append(part.split("=", 1)[1])
+        elif part == "--user-data-dir" and index + 1 < len(args):
+            found.append(args[index + 1])
     return found
 
 
-def is_owned_main(args: list[str], profile: Path) -> bool:
-    """The dashboard window, not a renderer and not someone else's Chromium.
+def _same_profile(candidate: str, profile: Path) -> bool:
+    """True when candidate is the dedicated profile, even if one path is resolved."""
+    left = candidate.rstrip("/")
+    right = str(profile).rstrip("/")
+    if left == right:
+        return True
+    try:
+        return Path(left).resolve() == Path(right).resolve()
+    except OSError:
+        return False
 
-    A real second launch prints "Opening in existing browser session" and
-    exits. That is a handoff, not a dead window. This matches only when the
-    first --user-data-dir is the dedicated Xeneon profile. A wrapper that
-    also names the everyday profile is left alone.
+
+def args_use_profile(args: list[str], profile: Path) -> bool:
+    """The dedicated profile appears in the command, in either flag form."""
+    if any(_same_profile(path, profile) for path in user_data_dirs(args)):
+        return True
+    marker = str(profile).rstrip("/")
+    return any(marker and marker in part for part in args)
+
+
+def is_owned_main(args: list[str], profile: Path) -> bool:
+    """The dashboard browser, not a renderer and not someone else's Chromium.
+
+    Close used to trust one stored pid. On the Pi that pid was already gone
+    while Chromium's main process was still the window, so Close did nothing.
+    The dedicated profile is the identity. A wrapper that also names a
+    different profile is left alone.
     """
     if any(part.startswith("--type=") for part in args):
         return False
     dirs = user_data_dirs(args)
+    if dirs and not _same_profile(dirs[0], profile):
+        return False
+    if dirs and any(not _same_profile(extra, profile) for extra in dirs[1:]):
+        return False
     if dirs:
-        first = Path(dirs[0])
-        wanted = Path(profile)
-        if first != wanted:
-            return False
-        if any(Path(extra) != wanted for extra in dirs[1:]):
-            return False
+        return True
     return is_owned_browser(args, profile)
 
 
@@ -570,34 +607,82 @@ def retain_one_owned_main(profile: Path, proc_root: Path | None = None, killer=N
     return keep
 
 
+def owned_profile_pids(profile: Path, proc_root: Path | None = None) -> list[int]:
+    """Every process of this profile, including helper types. Other profiles stay."""
+    found = []
+    for pid in list_pids(proc_root):
+        args = proc_args(pid, proc_root) or []
+        if args_use_profile(args, profile):
+            found.append(pid)
+    return sorted(found)
+
+
 def stop_owned_mains(profile: Path, proc_root: Path | None = None, killer=None) -> list[int]:
-    """Stop every owned dashboard window. Other Chromium profiles are not signaled."""
-    pids = owned_main_pids(profile, proc_root)
+    """Stop the dashboard Chromium by its profile, then confirm it is gone.
+
+    A stored pid is only a hint. The profile match is what finds the window
+    after Chromium has replaced that pid. Other Chromium profiles are not signaled.
+    """
+    pids = owned_profile_pids(profile, proc_root)
+    recorded = _recorded_browser_pid(proc_root)
+    if recorded is not None and recorded not in pids:
+        pids.append(recorded)
     if not pids:
+        log_window(f"close found no process for profile {profile}")
         return []
     real = proc_root is None and killer is None
     kill = killer or (_signal_term if real else None)
     if kill is None:
         return pids
     for pid in pids:
+        args = proc_args(pid, proc_root) or []
+        log_window(f"close signal pid={pid} cmd={' '.join(args)[:180]}")
         try:
             kill(pid)
         except OSError:
             pass
     if real:
-        _wait_gone(pids, Path("/proc"))
+        root = proc_root or Path("/proc")
+        _wait_gone(pids, root)
+        survivors = [pid for pid in pids if (root / str(pid)).exists()]
+        for pid in survivors:
+            log_window(f"close kill pid={pid}")
+            _signal_kill(pid)
+        _wait_gone(survivors, root)
     return pids
+
+
+def _recorded_browser_pid(proc_root: Path | None) -> int | None:
+    if proc_root is not None:
+        return None
+    path = runtime_dir() / "browser.pid"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text.isdigit():
+        return None
+    pid = int(text)
+    return pid if _pid_alive(pid) else None
 
 
 def _signal_term(pid: int) -> None:
     """Signal the process group once. A lone SIGTERM left Chromium children to respawn."""
+    _signal_to(pid, signal.SIGTERM)
+
+
+def _signal_kill(pid: int) -> None:
+    _signal_to(pid, signal.SIGKILL)
+
+
+def _signal_to(pid: int, sig: int) -> None:
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        os.killpg(os.getpgid(pid), sig)
         return
     except OSError:
         pass
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.kill(pid, sig)
     except OSError:
         pass
     _signal(pid, signal.SIGTERM)
@@ -1260,6 +1345,9 @@ def main(argv: list[str] | None = None) -> int:
         stopped = stop_owned_mains(profile_dir())
         print("stopped", " ".join(str(pid) for pid in stopped))
         return 0
+    if command == "profile-pids":
+        print(" ".join(str(pid) for pid in owned_profile_pids(profile_dir())))
+        return 0
     if command == "reconcile":
         data = reconcile_transition()
         print("" if not data else data.get("status", ""))
@@ -1282,6 +1370,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if command == "log-output":
         print(log_output_snapshot())
+        return 0
+    if command == "output-size":
+        import shutil
+        if shutil.which("wlr-randr") is None:
+            return 0
+        try:
+            completed = subprocess.run(["wlr-randr"], capture_output=True, text=True, timeout=3, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        size = current_output_size(completed.stdout or "")
+        if size:
+            print(f"{size[0]}x{size[1]}")
         return 0
     if command == "focus":
         print(focus_existing())
