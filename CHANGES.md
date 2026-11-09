@@ -1,30 +1,26 @@
-# Client 0.3.0
+# Client 0.4.0
 
-Against the published Pi client 0.2.2. The Windows host stays 0.2.0. No new installer.
-
-Unpublished 0.2.3 is included: Request code says the PC did not answer, and names the selected-host URL, instead of the raw word `pair_begin`.
+Against published client 0.3.0 (`349f4e8`). The Windows host stays 0.2.0. No installer.
 
 ## New
 
-- `client/xeneon/fans.py` — fan list, roles, observed range
-- `client/xeneon/keyboard.py` — local on-screen keyboard toggle
-- `client/scripts/keyboard-packages.sh` — documents `wvkbd`; does not run on install
-- `client/tests/test_pairing.py` — begin errors and the host begin JSON
-- `client/tests/test_fans_gpu.py` — GPU Core fallback, fan limits, theme, keyboard action
+None beyond the files below that are new in this tree since 0.3.0 was published. `fans.py`, `keyboard.py`, and `keyboard-packages.sh` shipped in 0.3.0.
 
 ## Changed
 
-- `client/xeneon/kioskctl.py` — one owned window; a Chromium handoff exit is not another launch
-- `client/scripts/kiosk.sh` — the supervisor calls that one attempt, then waits
-- `client/xeneon/session.py` — GPU temperature can come from one inventory GPU Core when the role is empty
-- `client/xeneon/setupflow.py` — theme, fan prefs, pairing failure text
-- `client/xeneon/bridge.py` — theme, fan board, keyboard route
-- `client/xeneon/static/index.html` — gear menu, fan tab, no top button bar
-- `client/xeneon/static/app.css` — day theme, gear, keyboard button
-- `client/xeneon/static/app.js` — gear, icons, fans, theme, keyboard
-- `client/xeneon/__init__.py` — 0.3.0
+- `client/xeneon/kioskctl.py` — fullscreen no longer relaunches Chromium. Optional F11 via `wlrctl` or `wtype` is logged.
+- `client/scripts/kiosk.sh` — starts `--start-fullscreen`, not `--kiosk`, and leaves a living window alone
+- `client/xeneon/bridge.py` — rediscover the paired PC with the stored token; album-art proxy
+- `client/xeneon/discover.py` — choose a discovered host that accepts the token
+- `client/xeneon/setupflow.py` — saved PC name, module order
+- `client/xeneon/spotify.py` — account display name when Spotify returns it
+- `client/xeneon/static/index.html` — setup tabs, host steps, layout list, no footer or close button
+- `client/xeneon/static/app.css` — day theme on modules and setup, Spotify card, tabs
+- `client/xeneon/static/app.js` — fullscreen in the page, 30–95 °C axis, disconnected notice, layout drag, Spotify card
+- `client/xeneon/__init__.py` — 0.4.0
 - `client/README.md`
-- `client/tests/test_kiosk.py` — handoff does not spawn twice
+- `client/tests/test_kiosk.py`
+- `client/tests/test_pairing.py`
 - `docs/ONBOARDING.md`
 - `CHANGES.md`
 
@@ -32,10 +28,28 @@ Unpublished 0.2.3 is included: Request code says the PC did not answer, and name
 
 None.
 
-## Host
+## Behavior
 
-No host change. GPU Core is already in the 0.2.0 inventory when the semantic role is empty. Fan sensors are already in that inventory. Pairing HTTP to a 0.2.0 listener still begins, approves, and stores a token.
+Fullscreen and Exit fullscreen use the browser Fullscreen API from the button click. Chromium is not started again. The launcher uses `--start-fullscreen` instead of `--kiosk`, because kiosk mode ignores that API. If the page reports no change, the bridge tries `wlrctl` then `wtype` with only F11, and appends a line to `$XDG_RUNTIME_DIR/xeneon/window.log`. Close dashboard still pauses the owned window and leaves the bridge, pairing, and Spotify login running.
 
-## Not tested on the Pi or the Windows PC
+Day mode recolors the page, panels, inputs, threads, meters, transport buttons, and setup. The saved theme is on the page before first paint, so day does not fade through the night palette. Cards stay white. Readings, state pills, graph lines, thread bars, and meters use saturated green, amber, orange, red, and blue with dark type. The temperature graph is fixed from 30 °C to 95 °C and prints 95°, 60°, and 30° beside the grid. A live link has no banner. Disconnected, stale, and refused tokens show “Disconnected from PC”.
 
-Labwc, Wayland, and the real Chromium package on the Pi were not run. A Chrome build here exits a second launch with "Opening in existing browser session" and leaves the first window. This machine's Chrome wrapper also injects another profile directory, so that wrapper is not treated as the owned window. A sensor-poll failure that stops the listener was reproduced only in a local listener process, and it was not the cause of the earlier empty port: the host window had been closed.
+The Spotify module is one rounded card. Album art fills the card, a dark gradient keeps the type readable, and the page samples the art for a darkened tint. The green Spotify mark sits at the top left. Title, artist, a thin progress bar, previous, a light rounded play/pause square, and next sit above smaller shuffle and repeat squares. Shuffle on and repeat (including repeat one) use the light square; off stays dim. Nothing playing keeps the same card with that title and a play icon. Demo art is a local picture, not a Spotify URL.
+
+If the PC stops answering, the Pi repeats UDP discovery on port 8764 and uses the stored token on a host that accepts it, preferring the saved computer name. The token is not cleared and pairing is not repeated. Host 0.2.0 already serves discovery and bearer telemetry, so no host change is required.
+
+The keyboard button is only visible while Setup is open. Clicking the dim area around Setup closes it. Host is split into Find hosts and Manual address, with pairing steps 1, 2, and 3. Layout is a drag list. Spotify shows Connect or Log out, not both, plus the account name when Spotify’s profile call succeeds.
+
+## Dependencies
+
+Optional, not installed by update:
+
+```sh
+sudo apt install wtype
+```
+
+`wlrctl` is the other fullscreen fallback if it is already packaged. `sh client/scripts/keyboard-packages.sh` still only prints the `wvkbd` line.
+
+## Not run
+
+The Pi on labwc Wayland and the Windows PC were not used. Chrome on this machine was used only to see that a second launch says “Opening in existing browser session”.
