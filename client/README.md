@@ -22,6 +22,8 @@ PYTHONPATH=client python3 -m xeneon --config "$HOME/.config/xeneon/client.json"
 
 `controlAllowLan` stays false in the example, so the poweroff port does not bind every interface until you set it. The telemetry token and the shutdown token are different files. Neither is written into the page.
 
+Client 0.4.1 keeps a single Chromium. Close writes a paused flag before the window is killed, and a second launcher focuses the existing window instead of starting another one. The small square with black borders was that extra window, opened without the panel size. The launcher passes `--window-size=2560,720` and `--window-position=0,0` and drops a saved `window_placement`. `wlr-randr` is only logged, on every launch, and the output mode is not changed. `sudo apt install wlr-randr` makes that log possible. The page also records `innerWidth`, `innerHeight`, and `devicePixelRatio` in the window log.
+
 ## Install
 
 ```sh
