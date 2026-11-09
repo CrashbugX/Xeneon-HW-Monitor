@@ -28,29 +28,31 @@ A browser upload does not keep the executable bit, so run the scripts with `sh`:
 sh client/scripts/install.sh
 ```
 
-Run that as the desktop user, not root. It keeps an existing `client.json`. It does not use a fixed `/home/pi` path. It stops a previous bridge only when that process command line is this app (`python -m xeneon`), then starts the user service. It does not close the browser or other Python programs. If a desktop is already running and the kiosk is not, it starts `sh client/scripts/kiosk.sh`. On labwc it appends `sh .../kiosk.sh` to `~/.config/labwc/autostart` once. That autostart line is what runs at the next graphical login. It was not executed on a Pi here.
+Run that as the desktop user, not root. It keeps an existing `client.json`, the host token, and the Spotify token. It does not use a fixed home-folder path. It restarts only a process whose command is `python -m xeneon` (not `python -m xeneon.kioskctl` and not another program). On labwc it leaves one `sh .../kiosk.sh supervise` line in `~/.config/labwc/autostart` and removes the old XDG autostart desktop file. The application menu item **Xeneon HW Monitor** runs `sh client/scripts/kiosk.sh resume`. That menu item is not a second autostart. This was not executed on a Pi.
 
-If you previously started a manual demo in a terminal, run this before opening the page, from the updated tree:
-
-```sh
-sh client/scripts/restart-bridge.sh
-```
-
-That frees port 8734 when the listener is this app, then restarts `xeneon-bridge.service`. The live bridge then serves the page. Demo numbers appear only when you start the app with `--demo`.
-
-Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's desktop is enough. **Setup** is on the dashboard.
-
-1. **Host.** Find hosts, or type the address and port. **1. Request code**, approve it on Windows, then **2. Submit code**. The device token is stored in `~/.config/xeneon/host.token` mode 600. The page does not receive it.
-2. **Layout.** Turn modules on or off. A hidden module is named in the overflow note. The 2560×720 stage stays the wide layout. Narrow and portrait windows stack the cards and scroll.
-3. **Spotify.** Press **Connect Spotify**. Spotify's own page opens in this browser. Approve it there. You do not type a Client ID, a client secret, or your Spotify password. The built-in public Client ID is `c15bb4b8de984a84a831995690451695`. Advanced can replace it; a blank field returns to that id, and a saved nonempty id is left alone.
-
-From a checkout, update with:
+From the checkout you already have, update with the script in that checkout. The script already on the Pi downloads the current tree. The new install script stops the old kiosk loop by its real script path and starts the managed one. You do not look up a process id.
 
 ```sh
 sh client/scripts/update-from-github.sh
 ```
 
-That downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz`, keeps the config directory, and runs `sh client/scripts/install.sh`, which stops the old Xeneon bridge and starts the user service again. It does not copy files from the Windows PC.
+If that shell is not already in the checkout, the labwc autostart line contains the path:
+
+```sh
+grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
+```
+
+Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
+
+The controls sit on the dashboard and again inside Setup. **Exit fullscreen** stops the owned Chromium `--kiosk` process and opens the same dashboard as a normal window in the Xeneon profile. **Fullscreen** goes back. **Close dashboard** closes that window and does not open it again during this login. The bridge, pairing, and Spotify login stay. Reopen from the application menu item **Xeneon HW Monitor**. The next login starts fullscreen again. If the page is still visible, the window did not close. These buttons do nothing to a browser you opened yourself. A browser other than Chromium or Firefox is named in the launcher log and is not pretended to have switched.
+
+Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's desktop is enough. **Setup** is on the dashboard.
+
+1. **Host.** Find hosts, or type the address and port. **1. Request code**, approve it on Windows, then **2. Submit code**. The device token is stored in `~/.config/xeneon/host.token` mode 600. The page does not receive it.
+2. **Layout.** Turn modules on or off. A hidden module is named in the overflow note. The 2560×720 stage stays the wide layout. Narrow and portrait windows stack the cards and scroll.
+3. **Spotify.** Press **Connect Spotify**. Spotify's own page opens in this browser. Approve it there. You do not type a Client ID, a client secret, or your Spotify password. The built-in public Client ID is `c15bb4b8de984a84a831995690451695`. Advanced can replace it; a blank field returns to that id, and a saved nonempty id is left alone. After consent, **Return to dashboard** goes to `http://127.0.0.1:8734/`. The page also goes there on its own. The address bar is replaced with `/` so the login code is not kept. A failed consent has the same return path and does not print the code.
+
+`sh client/scripts/restart-bridge.sh` restarts that bridge only. It does not close the dashboard window. `sh client/scripts/update-from-github.sh` downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz`, keeps the config directory, and runs the install script from that download. It does not copy files from the Windows PC.
 
 Demo mode stays labelled. A live authentication failure does not switch to demo.
 
@@ -69,8 +71,8 @@ This build uses the public Spotify app Client ID `c15bb4b8de984a84a8319956904516
 
 Shuffle is its own on/off switch. Repeat is a separate cycle: off, all, then one. They are not the same control.
 
-Paused playback shows **Nothing playing** and **Paused**. The title, art, and progress are hidden. Pause is offered only while something is playing. Play is offered only while paused. No active device, a Premium refusal, a rate limit, and a logged-out state leave the transport buttons disabled and name the reason. There is no volume control. The consent page itself has not been completed against Spotify yet.
+Paused playback shows **Nothing playing** and **Paused**. The title, art, and progress are hidden. Pause is offered only while something is playing. Play is offered only while paused. No active device, a Premium refusal, a rate limit, and a logged-out state leave the transport buttons disabled and name the reason. There is no volume control. Spotify consent was not completed from this environment.
 
 ## What this build did not run
 
-The Windows notification area, a real NVAPI read of the new build, the Pi on Debian, and a live Spotify consent were not executed here. The settings window screenshot is a headless render of the Avalonia window. The dashboard screenshots are the Pi page in demo mode.
+The Windows notification area, a real NVAPI read, and the Pi on Debian 13 / labwc / Wayland were not executed here. Exit fullscreen was checked with a fake browser and, where a local display existed, Chromium under X11. That is not a Wayland result. The dashboard screenshots are the Pi page in demo mode.
