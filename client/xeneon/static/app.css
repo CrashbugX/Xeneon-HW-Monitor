@@ -237,20 +237,20 @@ footer {
   position: absolute; left: 28px; right: 28px; bottom: 14px;
   color: var(--mut); font-size: 13px;
 }
-.kicker { color: var(--mut); font-size: 14px; font-weight: 650; letter-spacing: 0.04em; }
+.kicker { color: var(--mut); font-size: 15px; font-weight: 650; letter-spacing: 0.08em; }
+.temp-card { padding: 22px; }
+.temp-card .readout { margin-top: 28px; text-align: center; }
 .hero {
-  font-weight: 300; font-size: 132px; line-height: 0.9; letter-spacing: -0.04em;
+  font-weight: 500; font-size: 92px; line-height: 0.95; letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
   transition: color 150ms linear;
 }
-.unit { font-size: 32px; margin-left: 8px; }
-.pill {
-  position: absolute; right: 24px; top: 70px; border-radius: 18px; padding: 8px 14px;
-  font-size: 13px; font-weight: 700; border: 1px solid currentColor;
-}
+.unit { font-size: 28px; margin-left: 4px; font-weight: 500; }
+.pill { display: none; }
+.temp-card .sub { color: var(--mut); font-size: 15px; margin-top: 14px; text-align: center; }
 .sub { color: var(--mut); font-size: 15px; }
-canvas.graph { position: absolute; left: 24px; right: 24px; top: 250px; width: calc(100% - 48px); height: 210px; }
-.fans { position: absolute; left: 24px; right: 24px; bottom: 18px; display: flex; gap: 18px; align-items: center; }
+canvas.graph { position: absolute; left: 22px; right: 22px; top: 268px; width: calc(100% - 44px); height: 210px; }
+.fans { position: absolute; left: 22px; right: 22px; bottom: 22px; display: flex; gap: 18px; align-items: center; }
 .fan { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 13px; }
 .fan b { color: var(--text); font-family: ui-monospace, monospace; font-size: 17px; font-weight: 500; }
 .fan svg { width: 22px; height: 22px; }
@@ -355,9 +355,9 @@ img.art { object-fit: cover; }
   min-width: 0; width: auto; max-width: 100%; white-space: normal; box-sizing: border-box;
   padding: 8px 12px; line-height: 1.35;
 }
-#stage.compact .pill { position: static; display: inline-block; margin: 8px 0 0; }
+#stage.compact .temp-card .readout { margin-top: 12px; }
 #stage.compact .wifi { max-width: 100%; }
-#stage.compact .hero { font-size: 56px; }
+#stage.compact .hero { font-size: 64px; }
 #stage.compact .track { font-size: 22px; }
 #stage.compact #spotify.aa { position: relative; min-height: 460px; }
 #stage.compact #spotify .aa-title { font-size: 32px; }

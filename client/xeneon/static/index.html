@@ -78,6 +78,8 @@
         <div class="step"><b>2</b><span>Approve pairing on the PC. The code appears in the Windows window.</span></div>
         <div class="step"><b>3</b><label>Code <input id="setup-code" inputmode="numeric" autocomplete="one-time-code"></label><button id="setup-pair" type="button">Submit code</button></div>
         <p>The token stays in a private file on this Pi.</p>
+        <label><input id="setup-pi-shutdown" type="checkbox" checked> Allow PC to power off this Pi</label>
+        <p>On by default. Windows shutdown or restart can power this Pi off. Closing the dashboard does not. Only the paired PC's token is accepted.</p>
       </div>
       <div data-panel="layout" hidden>
         <p>Drag a module to reorder it. Add puts a hidden module back. Remove hides it.</p>

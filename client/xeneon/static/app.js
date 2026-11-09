@@ -25,7 +25,27 @@ const footer = document.getElementById("footer");
  * Scale the 2560x720 stage to the area under the window bar.
  * Local layout does not wait on the network.
  */
+let reportedViewport = "";
+
+/** Tell the bridge the real viewport. A small square and a wrong output mode look different in this line. */
+function reportViewport() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const ratio = window.devicePixelRatio || 1;
+  const key = width + "x" + height + "@" + ratio;
+  if (key === reportedViewport) {
+    return;
+  }
+  reportedViewport = key;
+  fetch("/api/viewport", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ innerWidth: width, innerHeight: height, devicePixelRatio: ratio })
+  }).catch(function () { /* The layout does not depend on this log line. */ });
+}
+
 function fitStage() {
+  reportViewport();
   const narrow = window.innerWidth < 1100 || window.innerHeight < 500 || (window.innerHeight > window.innerWidth && window.innerWidth < 1400);
   stage.classList.toggle("compact", narrow);
   if (narrow) {
@@ -74,11 +94,17 @@ async function refreshView() {
  * Paint one frame from the cached view. Does not read the network.
  * @param {number} nowMs requestAnimationFrame timestamp
  */
-function render(_nowMs) {
-  fitStage();
-  if (view) {
-    redrawGraphs();
-    easeBars();
+let lastGraphMs = 0;
+
+function render(nowMs) {
+  // About 30 fps, and nothing while the tab is hidden, so a Pi 4 is not busy drawing.
+  if (!document.hidden && nowMs - lastGraphMs >= 32) {
+    lastGraphMs = nowMs;
+    fitStage();
+    if (view) {
+      redrawGraphs(nowMs / 1000);
+      easeBars();
+    }
   }
   requestAnimationFrame(render);
 }
@@ -178,16 +204,19 @@ function paintTemp(key, title) {
   const hero = el("div", "hero", text);
   const unit = el("span", "unit", "°C");
   hero.append(unit);
-  card.append(hero);
-  card.append(el("div", "pill", level ? "STATE · " + level.toUpperCase() : "NO SAMPLE"));
+  const readout = el("div", "readout");
+  readout.append(hero);
   const stats = historyStats(data.history);
-  card.append(el("div", "sub", stats));
+  readout.append(el("div", "sub", stats));
+  card.append(readout);
   const canvas = document.createElement("canvas");
   canvas.className = "graph";
-  canvas.width = 500;
-  canvas.height = 210;
+  canvas.width = 640;
+  canvas.height = 220;
+  canvas.dataset.trace = key;
   card.append(canvas);
-  drawGraph(canvas, data.history, levelColor(level));
+  ingestTrace(key, data);
+  drawGraph(canvas, traces[key], levelColor(level), Date.now() / 1000, data.sampleInterval);
   const fans = el("div", "fans");
   const assigned = ((view && view.fanBoard) || []).filter(function (fan) { return fan.role === key; });
   const list = assigned.length
@@ -213,47 +242,204 @@ function historyStats(history) {
   return "min " + Math.round(min) + " °C · avg " + Math.round(avg) + " °C · max " + Math.round(max) + " °C";
 }
 
+const traces = { cpu: [], gpu: [] };
+
+/** Latest gaps, same rule as xeneon.smooth.median_interval. Any poll rate, not a fixed 3 seconds. */
+function medianInterval(times) {
+  const gaps = [];
+  for (let index = 1; index < times.length; index += 1) {
+    const gap = times[index] - times[index - 1];
+    if (gap > 0.05 && gap < 3600) {
+      gaps.push(gap);
+    }
+  }
+  const recent = gaps.slice(-7).sort(function (a, b) { return a - b; });
+  if (recent.length === 0) {
+    return 1;
+  }
+  const middle = Math.floor(recent.length / 2);
+  return recent.length % 2 ? recent[middle] : (recent[middle - 1] + recent[middle]) / 2;
+}
+
+function ingestTrace(key, data) {
+  const values = data.history || [];
+  const times = data.historyAt || [];
+  const now = Date.now() / 1000;
+  traces[key] = values.map(function (value, index) {
+    const stamp = typeof times[index] === "number" ? times[index] : now - (values.length - 1 - index);
+    return { t: stamp, v: value };
+  });
+}
+
+function smoothstep(unit) {
+  const clamped = Math.max(0, Math.min(1, unit));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+/** Historical samples stay put. The newest one eases in over the measured interval. */
+function visibleTrace(points, now, interval) {
+  if (!points.length) {
+    return [];
+  }
+  if (points.length === 1) {
+    return [{ t: now, v: points[0].v }];
+  }
+  const prev = points[points.length - 2];
+  const last = points[points.length - 1];
+  const duration = interval > 0 ? interval : Math.max(0.5, last.t - prev.t);
+  const eased = smoothstep(Math.max(0, now - last.t) / duration);
+  const shown = prev.v + (last.v - prev.v) * eased;
+  const tip = prev.t + (Math.max(last.t, prev.t) - prev.t) * eased;
+  const fixed = points.slice(0, -1).map(function (point) { return { t: point.t, v: point.v }; });
+  fixed.push({ t: tip, v: shown });
+  return fixed;
+}
+
+function monotoneSlopes(xs, ys) {
+  const count = xs.length;
+  const delta = [];
+  for (let index = 0; index < count - 1; index += 1) {
+    delta.push((ys[index + 1] - ys[index]) / (xs[index + 1] - xs[index]));
+  }
+  const slope = new Array(count).fill(0);
+  slope[0] = delta[0];
+  slope[count - 1] = delta[count - 2];
+  for (let index = 1; index < count - 1; index += 1) {
+    if (delta[index - 1] === 0 || delta[index] === 0 || delta[index - 1] * delta[index] < 0) {
+      slope[index] = 0;
+    } else {
+      slope[index] = (delta[index - 1] + delta[index]) / 2;
+    }
+  }
+  for (let index = 0; index < count - 1; index += 1) {
+    if (delta[index] === 0) {
+      slope[index] = 0;
+      slope[index + 1] = 0;
+      continue;
+    }
+    const alpha = slope[index] / delta[index];
+    const beta = slope[index + 1] / delta[index];
+    const hyp = alpha * alpha + beta * beta;
+    if (hyp > 9) {
+      const scale = 3 / Math.sqrt(hyp);
+      slope[index] = scale * alpha * delta[index];
+      slope[index + 1] = scale * beta * delta[index];
+    }
+  }
+  return slope;
+}
+
+function curvePoints(points) {
+  if (points.length < 2) {
+    return points;
+  }
+  const xs = points.map(function (point) { return point.t; });
+  const ys = points.map(function (point) { return point.v; });
+  const slope = monotoneSlopes(xs, ys);
+  const out = [];
+  const steps = 8;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const span = xs[index + 1] - xs[index];
+    const low = Math.min(ys[index], ys[index + 1]);
+    const high = Math.max(ys[index], ys[index + 1]);
+    for (let step = 0; step < steps; step += 1) {
+      const unit = step / steps;
+      const unit2 = unit * unit;
+      const unit3 = unit2 * unit;
+      let y = (2 * unit3 - 3 * unit2 + 1) * ys[index]
+        + (unit3 - 2 * unit2 + unit) * span * slope[index]
+        + (-2 * unit3 + 3 * unit2) * ys[index + 1]
+        + (unit3 - unit2) * span * slope[index + 1];
+      y = Math.min(high, Math.max(low, y));
+      out.push({ t: xs[index] + span * unit, v: y });
+    }
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 /**
- * Stroke the temperature history. Does not invent samples to fill 60 seconds.
+ * Smooth temperature curve. The right edge is "now", so the line scrolls
+ * between samples. The duration of the newest point is the measured gap.
  * @param {HTMLCanvasElement} canvas
- * @param {number[]} history
+ * @param {{t: number, v: number}[]} points
  * @param {string} color
+ * @param {number} now seconds
+ * @param {number} interval seconds
  */
-function drawGraph(canvas, history, color) {
+function drawGraph(canvas, points, color, now, interval) {
   const ctx = canvas.getContext("2d");
   const low = 30;
   const high = 95;
+  const left = 46;
+  const right = canvas.width - 8;
+  const top = 12;
+  const bottom = canvas.height - 16;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const day = document.documentElement.dataset.theme === "day";
-  ctx.strokeStyle = day ? "#8ea0b8" : "#9aa6b4";
-  ctx.fillStyle = day ? "#10141c" : "#eef3f8";
+  ctx.strokeStyle = day ? "#d5deea" : "rgba(255,255,255,0.18)";
+  ctx.fillStyle = day ? "#5c6b7c" : "rgba(232,236,242,0.72)";
   ctx.lineWidth = 1;
-  ctx.font = "bold 15px sans-serif";
+  ctx.font = "13px sans-serif";
+  function yOf(value) {
+    const clamped = Math.max(low, Math.min(high, value));
+    return bottom - ((clamped - low) / (high - low)) * (bottom - top);
+  }
   [95, 60, 30].forEach(function (mark) {
-    const y = canvas.height - 18 - ((mark - low) / (high - low)) * (canvas.height - 36);
+    const y = yOf(mark);
     ctx.beginPath();
-    ctx.moveTo(42, y);
-    ctx.lineTo(canvas.width - 8, y);
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
     ctx.stroke();
-    ctx.fillText(String(mark) + "°", 2, y + 5);
+    ctx.fillText(String(mark) + "°", 2, y + 4);
   });
-  if (!history || history.length < 2) {
+  const shown = visibleTrace(points || [], now, interval || 1);
+  if (shown.length < 2) {
     return;
   }
-  ctx.beginPath();
+  // The newest point stays near the right. It drifts left only for one measured
+  // interval, so a clock jump cannot push the whole curve off the card.
+  const lastStamp = shown[shown.length - 1].t;
+  const lead = Math.min(Math.max(0, now - lastStamp), interval || 1);
+  const rightEdge = lastStamp + lead;
+  const span = Math.max((interval || 1) * 12, lastStamp - shown[0].t, 1);
+  const start = rightEdge - span;
+  function xOf(stamp) {
+    return left + ((stamp - start) / span) * (right - left);
+  }
+  const curved = curvePoints(shown);
+  function traceCurve() {
+    ctx.beginPath();
+    curved.forEach(function (point, index) {
+      const x = xOf(point.t);
+      const y = yOf(point.v);
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+  }
+  traceCurve();
+  const last = curved[curved.length - 1];
+  ctx.lineTo(xOf(last.t), bottom);
+  ctx.lineTo(xOf(curved[0].t), bottom);
+  ctx.closePath();
+  const fade = ctx.createLinearGradient(0, top, 0, bottom);
+  fade.addColorStop(0, color);
+  fade.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.globalAlpha = day ? 0.22 : 0.28;
+  ctx.fillStyle = fade;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  traceCurve();
   ctx.strokeStyle = color;
-  ctx.lineWidth = document.documentElement.dataset.theme === "day" ? 4 : 3;
-  history.forEach((value, index) => {
-    const clamped = Math.max(low, Math.min(high, value));
-    const x = 42 + (index / (history.length - 1)) * (canvas.width - 54);
-    const y = canvas.height - 18 - ((clamped - low) / (high - low)) * (canvas.height - 36);
-    if (index === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  });
+  ctx.lineWidth = 3;
   ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(xOf(last.t), yOf(last.v), 5, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
 }
 
 /** @param {string} level */
@@ -327,12 +513,16 @@ function easeBars() {
 }
 
 /** Redraw both temperature lines every frame without touching the hero numbers. */
-function redrawGraphs() {
+function redrawGraphs(nowSeconds) {
+  const now = nowSeconds || Date.now() / 1000;
   ["cpu", "gpu"].forEach((key) => {
     const canvas = document.querySelector("#" + key + " canvas");
-    if (canvas) {
-      drawGraph(canvas, view[key].history, levelColor(view[key].level || ""));
+    if (!canvas || !view[key]) {
+      return;
     }
+    const times = (traces[key] || []).map(function (point) { return point.t; });
+    const interval = medianInterval(times);
+    drawGraph(canvas, traces[key], levelColor(view[key].level || ""), now, interval);
   });
 }
 
@@ -616,6 +806,10 @@ async function paintSetup() {
     }
   }
   paintLayout(payload.modules || {}, payload.moduleOrder || []);
+  const piShutdown = document.getElementById("setup-pi-shutdown");
+  if (piShutdown) {
+    piShutdown.checked = payload.piShutdown !== false;
+  }
   document.getElementById("setup-status").textContent = payload.demo
     ? "Demo is on. Pairing and Spotify login stay available, and demo numbers stay labelled."
     : (payload.paired ? "Paired with " + (payload.hostUrl || "the host") + "." : "Not paired yet.");
@@ -1156,6 +1350,12 @@ document.querySelectorAll("[data-host-tab]").forEach(function (button) {
 document.getElementById("setup-discover").addEventListener("click", discoverHosts);
 document.getElementById("setup-request").addEventListener("click", requestPairing);
 document.getElementById("setup-pair").addEventListener("click", pairHost);
+const piShutdownBox = document.getElementById("setup-pi-shutdown");
+if (piShutdownBox) {
+  piShutdownBox.addEventListener("change", function () {
+    postSetup("/api/setup/pi-shutdown", { enabled: piShutdownBox.checked });
+  });
+}
 document.getElementById("setup-spotify").addEventListener("click", connectSpotify);
 const saveClientId = document.getElementById("setup-save-id");
 if (saveClientId) {
