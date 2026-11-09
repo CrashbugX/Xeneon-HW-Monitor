@@ -119,33 +119,80 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
   width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center;
   background: var(--text); color: var(--bg); flex: none;
 }
-/* The card is the containing block for the art. Compact mode sets position:static
-   on #spotify, which would otherwise let the art cover the whole page. */
-#spotify.aa { overflow: hidden; color: #fff; border: none; }
-#spotify .aa-bg, #spotify .aa-shade { position: absolute; inset: 0; }
-#spotify .aa-bg { background-position: center; background-size: cover; }
-#spotify .aa-shade { background: linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.18) 32%, rgba(0,0,0,.62) 68%, rgba(0,0,0,.82) 100%); }
-#spotify .aa-body { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; padding: 22px 26px 20px; }
-#spotify .aa-logo { width: 32px; height: 32px; }
-#spotify .aa-logo svg { width: 32px; height: 32px; display: block; }
-#spotify .aa-title { font-size: 40px; font-weight: 750; letter-spacing: -0.03em; line-height: 1.05; margin-top: auto; }
-#spotify .aa-artist { font-size: 20px; opacity: .92; margin-top: 6px; }
-#spotify .aa-progress { height: 3px; background: rgba(255,255,255,.38); margin: 18px 0 6px; border-radius: 2px; }
-#spotify .aa-progress span { display: block; height: 100%; background: #fff; }
-#spotify .aa-main { display: flex; justify-content: center; align-items: center; gap: 28px; margin-top: 10px; }
-#spotify .aa-play {
-  width: 78px; height: 68px; border-radius: 18px; background: #f4f6f8; color: #12141a;
-  border: none; opacity: 1;
+/* Tall Spotify card. Compact mode sets position:static on #spotify, so the
+   art is clipped here and cannot cover the rest of the page. */
+#spotify.spot {
+  overflow: hidden; color: #fff; border: none;
+  background: #0e141c;
 }
-#spotify .aa-skip { width: 56px; height: 56px; border: none; background: transparent; color: #fff; opacity: 1; }
-#spotify .aa-side { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 0 6px; }
-#spotify .aa-side button {
-  width: 48px; height: 44px; border-radius: 14px; border: none;
-  background: rgba(255,255,255,.2); color: #fff; opacity: 1;
+#spotify .spot-media { position: absolute; inset: 0; isolation: isolate; z-index: 0; }
+#spotify .spot-art, #spotify .spot-tint, #spotify .spot-vignette { position: absolute; inset: 0; }
+#spotify img.spot-art {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
-#spotify .aa-side button.on { background: #fff; color: #12141a; }
-#spotify .aa-play svg { width: 34px; height: 34px; }
-#spotify .aa-skip svg, #spotify .aa-side svg { width: 26px; height: 26px; }
+#spotify.idle .spot-art {
+  background: linear-gradient(145deg, #1a2330 0%, #0e141c 55%, #162018 100%);
+}
+#spotify .spot-tint {
+  background: rgba(20, 28, 40, 0.42);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+#spotify .spot-vignette {
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,.10) 0%, rgba(0,0,0,.05) 38%, rgba(0,0,0,.22) 58%, rgba(0,0,0,.55) 78%, rgba(0,0,0,.72) 100%);
+}
+#spotify .spot-chrome {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column;
+  padding: 18px 20px 18px;
+}
+#spotify .spot-top { display: flex; align-items: flex-start; }
+#spotify .spot-logo { width: 28px; height: 28px; }
+#spotify .spot-logo svg { width: 28px; height: 28px; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+#spotify .spot-meta { margin-top: auto; padding: 0 6px 12px; }
+#spotify .spot-title {
+  color: #fff;
+  font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15;
+  text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#spotify.idle .spot-title { font-size: 22px; }
+#spotify .spot-artist {
+  color: #fff;
+  margin-top: 4px; font-size: 16px; font-weight: 500; opacity: .95;
+  text-shadow: 0 1px 0 rgba(0,0,0,.45), 0 3px 10px rgba(0,0,0,.35);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#spotify .spot-progress {
+  height: 3px; border-radius: 2px; background: rgba(255,255,255,.32);
+  margin: 14px 6px 0; position: relative; overflow: visible;
+}
+#spotify .spot-progress > span {
+  display: block; height: 100%; background: #fff; border-radius: 2px; position: relative;
+}
+#spotify .spot-progress > span::after {
+  content: "";
+  position: absolute; right: -5px; top: 50%;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #fff; transform: translateY(-50%);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35);
+}
+#spotify.idle .spot-progress > span::after { display: none; }
+#spotify .spot-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px 4px;
+}
+#spotify .spot-btn {
+  appearance: none; border: 0; background: transparent; color: #fff;
+  width: 72px; height: 72px; padding: 0; border-radius: 0;
+  display: grid; place-items: center;
+}
+#spotify .spot-btn.side img { width: 40px; height: 40px; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
+#spotify .spot-btn.play { width: 80px; height: 80px; }
+#spotify .spot-btn.play img { width: 72px; height: 72px; display: block; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
 #spotify button.transport:disabled { opacity: 0.4; }
 html[data-theme="day"] .temp-card.level-green,
 html[data-theme="day"] .temp-card.level-yellow,
@@ -359,5 +406,5 @@ img.art { object-fit: cover; }
 #stage.compact .wifi { max-width: 100%; }
 #stage.compact .hero { font-size: 64px; }
 #stage.compact .track { font-size: 22px; }
-#stage.compact #spotify.aa { position: relative; min-height: 460px; }
-#stage.compact #spotify .aa-title { font-size: 32px; }
+#stage.compact #spotify.spot { position: relative; min-height: 460px; height: 648px; }
+#stage.compact #spotify .spot-title { font-size: 22px; }

@@ -656,87 +656,120 @@ function paintCases() {
 }
 
 /**
- * Spotify column. Live mode keeps every control disabled.
- * Demo pause is offered only while playing, and play only while paused.
+ * Spotify card. The picture fills the tall card (cover crop, no letterbox).
+ * Title, progress, and the five controls sit on a dark gradient at the bottom.
+ * Login and which buttons work are unchanged: pause only while playing,
+ * play only while paused, and a logged-out card keeps the buttons disabled.
  */
 function paintSpotify() {
   const root = document.getElementById("spotify");
   let spot = view.spotify || {};
-  if (new URLSearchParams(location.search).get("preview") === "paused") {
-    spot = Object.assign({}, spot, { playing: false, shuffle: "off", repeat: "off" });
+  const preview = new URLSearchParams(location.search).get("preview");
+  if (preview === "paused") {
+    spot = Object.assign({}, spot, { playing: false });
+  }
+  if (preview === "idle") {
+    spot = { connected: true, playing: false, title: null, artist: null, art: null, shuffle: "off", repeat: "off", detail: "Nothing playing" };
   }
   const playing = !!spot.playing && (view.demo || spot.connected);
+  const hasTrack = !!(spot.title || spot.artist || spot.art);
   root.innerHTML = "";
-  root.className = "panel aa";
-  const bg = el("div", "aa-bg");
-  const shade = el("div", "aa-shade");
-  if (playing && spot.art) {
+  root.className = "panel spot" + (hasTrack ? "" : " idle");
+  const art = document.createElement(hasTrack && spot.art ? "img" : "div");
+  art.className = "spot-art";
+  art.setAttribute("aria-hidden", "true");
+  const tint = el("div", "spot-tint");
+  if (hasTrack && spot.art) {
     const src = String(spot.art).charAt(0) === "/" ? spot.art : ("/art?u=" + encodeURIComponent(spot.art));
-    bg.style.backgroundImage = "url(\"" + src + "\")";
-    tintFromArt(root, src);
-  } else {
-    bg.style.background = "linear-gradient(165deg, #2a3544 0%, #151b24 55%, #10141a 100%)";
+    art.src = src;
+    art.alt = "";
+    tintFromArt(tint, src);
   }
-  root.append(bg);
-  root.append(shade);
-  const body = el("div", "aa-body");
-  body.append(spotifyMark());
-  if (!playing) {
-    body.append(el("div", "aa-title", view.demo || spot.connected ? "Nothing playing" : "Not connected"));
-    body.append(el("div", "aa-artist", view.demo || spot.connected ? "Spotify is idle" : (spot.detail || "Connect Spotify in Setup.")));
+  // Art, tint, and the bottom gradient stay in their own layer. The multiply
+  // blend must not include the title, or the white type turns dark.
+  const media = el("div", "spot-media");
+  media.append(art);
+  media.append(tint);
+  media.append(el("div", "spot-vignette"));
+  root.append(media);
+  const chrome = el("div", "spot-chrome");
+  const top = el("div", "spot-top");
+  top.append(spotifyMark());
+  chrome.append(top);
+  const meta = el("div", "spot-meta");
+  if (hasTrack) {
+    meta.append(el("div", "spot-title", spot.title || "Unknown title"));
+    meta.append(el("div", "spot-artist", spot.artist || ""));
+  } else if (view.demo || spot.connected) {
+    meta.append(el("div", "spot-title", "Nothing playing"));
+    meta.append(el("div", "spot-artist", spot.detail && spot.detail !== "Nothing playing" ? spot.detail : "Spotify is idle"));
   } else {
-    body.append(el("div", "aa-title", spot.title || "Unknown title"));
-    body.append(el("div", "aa-artist", spot.artist || ""));
-    const progress = el("div", "aa-progress");
-    const fill = document.createElement("span");
-    const ratio = spot.duration ? Math.max(0, Math.min(1, (spot.position || 0) / spot.duration)) : 0;
-    fill.style.width = (ratio * 100) + "%";
-    progress.append(fill);
-    body.append(progress);
+    meta.append(el("div", "spot-title", "Not connected"));
+    meta.append(el("div", "spot-artist", spot.detail || "Connect Spotify in Setup."));
   }
+  const progress = el("div", "spot-progress");
+  progress.setAttribute("aria-hidden", "true");
+  const fill = document.createElement("span");
+  const ratio = hasTrack && spot.duration ? Math.max(0, Math.min(1, (spot.position || 0) / spot.duration)) : 0;
+  fill.style.width = (ratio * 100) + "%";
+  progress.append(fill);
+  meta.append(progress);
+  chrome.append(meta);
   const live = !view.demo && spot.connected;
   const skipOn = view.demo || (live && !!spot.canSkip);
-  const main = el("div", "aa-main");
-  main.append(aaButton("Previous track", skipOn, live && spot.canSkip ? "previous" : null, iconPrevious(), false, "aa-skip"));
   const showPause = (view.demo && playing) || (live && spot.canPause);
-  main.append(aaButton(showPause ? "Pause" : "Play", view.demo || (live && (spot.canPause || spot.canPlay)), showPause ? "pause" : ((view.demo || (live && spot.canPlay)) ? "play" : null), showPause ? iconPause() : iconPlay(), false, "aa-play"));
-  main.append(aaButton("Next track", skipOn, live && spot.canSkip ? "next" : null, iconNext(), false, "aa-skip"));
-  body.append(main);
-  const side = el("div", "aa-side");
+  const playEnabled = view.demo || (live && (spot.canPause || spot.canPlay));
   const shuffleOn = spot.shuffle === "on";
-  side.append(aaButton(shuffleOn ? "Shuffle on" : "Shuffle off", view.demo || (live && !!spot.canShuffle), (view.demo || live) ? "shuffle" : null, iconShuffle(), shuffleOn, ""));
   const repeat = spot.repeat || "off";
+  const repeatOn = repeat !== "off";
   const repeatLabel = repeat === "one" ? "Repeat one" : (repeat === "all" ? "Repeat all" : "Repeat off");
-  side.append(aaButton(repeatLabel, view.demo || (live && !!spot.canRepeat), (view.demo || live) ? "repeat" : null, iconRepeat(repeat), repeat !== "off", ""));
-  body.append(side);
-  root.append(body);
+  const row = el("div", "spot-row");
+  row.append(spotButton(shuffleOn ? "Shuffle on" : "Shuffle off", view.demo || (live && !!spot.canShuffle), (view.demo || live) ? "shuffle" : null, shuffleOn ? "shuffle_on" : "shuffle_off", "side"));
+  row.append(spotButton("Previous track", skipOn, (view.demo || (live && spot.canSkip)) ? "previous" : null, "previous", "side"));
+  row.append(spotButton(showPause ? "Pause" : "Play", playEnabled, showPause ? "pause" : (playEnabled ? "play" : null), showPause ? "pause" : "play", "play"));
+  row.append(spotButton("Next track", skipOn, (view.demo || (live && spot.canSkip)) ? "next" : null, "next", "side"));
+  row.append(spotButton(repeatLabel, view.demo || (live && !!spot.canRepeat), (view.demo || live) ? "repeat" : null, repeatOn ? "repeat_on" : "repeat_off", "side"));
+  chrome.append(row);
+  root.append(chrome);
 }
 
-function aaButton(label, enabled, action, svg, active, extra) {
-  const button = iconButton(label, enabled, action, svg, active);
-  if (extra) {
-    button.className += " " + extra;
+/**
+ * One transport button. The picture is a PrestoDeck glyph: white when off,
+ * Spotify green when shuffle or repeat is on. The play and pause files
+ * already include the white circle and the black glyph.
+ */
+function spotButton(label, enabled, action, icon, kind) {
+  const button = document.createElement("button");
+  button.className = "transport spot-btn " + kind;
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = "<img src=\"/icons/" + icon + ".png\" alt=\"\" draggable=\"false\">";
+  button.disabled = !enabled;
+  if (action && enabled) {
+    button.addEventListener("click", function () { postAction(action); });
   }
   return button;
 }
 
 function spotifyMark() {
-  const mark = el("div", "aa-logo");
+  const mark = el("div", "spot-logo");
   mark.innerHTML = "<svg viewBox=\"0 0 24 24\" role=\"img\" aria-label=\"Spotify\"><circle cx=\"12\" cy=\"12\" r=\"12\" fill=\"#1DB954\"/>" +
-    "<path fill=\"#191414\" d=\"M17.4 16.3a.55.55 0 0 1-.76.18c-2.1-1.28-4.75-1.57-7.86-.86a.55.55 0 1 1-.24-1.07c3.4-.78 6.32-.44 8.68.97.24.14.32.45.18.78zm1-2.4a.7.7 0 0 1-.96.23c-2.4-1.48-6.06-1.91-8.9-1.04a.7.7 0 0 1-.4-1.34c3.26-1 7.36-.5 10.03 1.2.3.18.4.58.23.95zm.1-2.5c-2.9-1.72-7.7-1.88-10.47-1.04a.84.84 0 1 1-.48-1.61c3.2-.96 8.52-.77 11.88 1.2a.84.84 0 0 1-.93 1.45z\"/></svg>";
+    "<path fill=\"#000\" d=\"M16.8 16.3c-.2.4-.7.5-1 .2-2.8-1.7-6.3-2.1-10.4-1.1-.4.1-.8-.2-.9-.6-.1-.4.2-.8.6-.9 4.5-1 8.4-.6 11.5 1.3.4.2.5.7.2 1.1zm1.4-3.1c-.3.5-.9.6-1.3.3-3.2-2-8-2.5-11.7-1.4-.5.1-1-.2-1.2-.7-.1-.5.2-1 .7-1.2 4.3-1.3 9.6-.7 13.2 1.6.5.3.6.9.3 1.4zm.1-3.2C14.4 7.4 8.3 7.2 5.1 8.2c-.6.2-1.2-.2-1.4-.8-.2-.6.2-1.2.8-1.4 3.7-1.1 10.5-.9 14.6 1.6.5.3.7 1 .4 1.5-.3.6-1 .8-1.5.5z\"/></svg>";
   return mark;
 }
 
-function tintFromArt(root, src) {
+/** Average the cover and lay that color over the art at 42% opacity, like Android Auto. */
+function tintFromArt(tint, src) {
   const image = new Image();
   image.onload = function () {
     try {
       const sample = document.createElement("canvas");
-      sample.width = 4;
-      sample.height = 4;
+      sample.width = 8;
+      sample.height = 8;
       const ctx = sample.getContext("2d");
-      ctx.drawImage(image, 0, 0, 4, 4);
-      const data = ctx.getImageData(0, 0, 4, 4).data;
+      ctx.drawImage(image, 0, 0, 8, 8);
+      const data = ctx.getImageData(0, 0, 8, 8).data;
       let r = 0;
       let g = 0;
       let b = 0;
@@ -746,36 +779,12 @@ function tintFromArt(root, src) {
         g += data[i + 1];
         b += data[i + 2];
       }
-      root.style.background = "rgb(" + Math.round(r / pixels * 0.45) + "," + Math.round(g / pixels * 0.45) + "," + Math.round(b / pixels * 0.45) + ")";
+      tint.style.background = "rgba(" + Math.round(r / pixels) + "," + Math.round(g / pixels) + "," + Math.round(b / pixels) + ",0.42)";
     } catch (_error) {
-      /* A tainted canvas leaves the darkened fallback. */
+      /* A tainted canvas leaves the idle tint from CSS. */
     }
   };
   image.src = src;
-}
-
-function iconButton(label, enabled, action, svg, active) {
-  const button = document.createElement("button");
-  button.className = "transport" + (enabled ? " primary" : "") + (active ? " on" : "");
-  button.type = "button";
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  button.innerHTML = svg;
-  button.disabled = !enabled;
-  if (action && enabled) {
-    button.addEventListener("click", () => postAction(action));
-  }
-  return button;
-}
-
-function iconPrevious() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>'; }
-function iconNext() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>'; }
-function iconPlay() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'; }
-function iconPause() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>'; }
-function iconShuffle() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14 4h6v6h-2V7.4l-3.3 3.3-1.4-1.4L16.6 6H14V4zM4 6h4.6l3.2 3.2-1.4 1.4L7.2 8H4V6zm8.8 7.4 1.4 1.4L11 18h2.6v2H8v-6h2v2.6l2.8-2.8zM16.6 16l3.3-3.3 1.4 1.4L18 17.4V20h-2v-6h2v2.6z"/></svg>'; }
-function iconRepeat(mode) {
-  const one = mode === "one" ? '<text x="9" y="16" font-size="8" fill="currentColor">1</text>' : "";
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 7h10V4l4 4-4 4V9H7v3L3 8l4-4v3zm10 10H7v3l-4-4 4-4v3h10v-3l4 4-4 4v-3z"/>' + one + "</svg>";
 }
 
 /**
@@ -1386,10 +1395,6 @@ async function toggleKeyboard() {
   });
   const payload = await response.json();
   const note = document.getElementById("win-note");
-  const menu = document.getElementById("gear-menu");
-  if (menu) {
-    menu.hidden = false;
-  }
   if (note) {
     note.hidden = false;
     note.textContent = payload.detail || "The keyboard did not change.";
@@ -1397,11 +1402,39 @@ async function toggleKeyboard() {
   document.getElementById("osk").setAttribute("aria-expanded", payload.visible ? "true" : "false");
 }
 
+function closeGearMenu() {
+  const menu = document.getElementById("gear-menu");
+  const gear = document.getElementById("gear");
+  if (!menu || menu.hidden) {
+    return;
+  }
+  menu.hidden = true;
+  if (gear) {
+    gear.setAttribute("aria-expanded", "false");
+  }
+}
+
 document.getElementById("gear").addEventListener("click", function () {
   const menu = document.getElementById("gear-menu");
+  const gear = document.getElementById("gear");
   menu.hidden = !menu.hidden;
-  document.getElementById("gear").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  gear.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
 });
+// Capture runs before the thing that was clicked. The menu hides, then the
+// control still runs, even if that control stops the click from bubbling.
+// The gear button is left alone: it is the toggle, and hiding here would
+// close the menu on the same click that opened it.
+document.addEventListener("click", function (event) {
+  const menu = document.getElementById("gear-menu");
+  const gear = document.getElementById("gear");
+  if (!menu || menu.hidden) {
+    return;
+  }
+  if (gear && (event.target === gear || gear.contains(event.target))) {
+    return;
+  }
+  closeGearMenu();
+}, true);
 document.addEventListener("fullscreenchange", function () {
   paintWindowControls();
 });
