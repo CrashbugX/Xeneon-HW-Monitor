@@ -44,7 +44,7 @@ grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
 
 Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
 
-The controls sit on the dashboard and again inside Setup. **Exit fullscreen** stops the owned Chromium `--kiosk` process and opens the same dashboard as a normal window in the Xeneon profile. **Fullscreen** goes back. **Close dashboard** closes that window and does not open it again during this login. The bridge, pairing, and Spotify login stay. Reopen from the application menu item **Xeneon HW Monitor**. The next login starts fullscreen again. If the page is still visible, the window did not close. These buttons do nothing to a browser you opened yourself. A browser other than Chromium or Firefox is named in the launcher log and is not pretended to have switched.
+The controls sit on the dashboard and again inside Setup. One button reads the owned launcher. It says **Fullscreen** when that window is normal, and **Exit fullscreen** when it is kiosk. Choosing it again while that change is still running does nothing, and the buttons stay off until the launcher has actually started that mode. A page reload does not turn them back on early. **Close dashboard** sits apart from that button. It closes the owned window and does not open it again during this login. The bridge, pairing, and Spotify login stay. Reopen from the application menu item **Xeneon HW Monitor**. The next login starts fullscreen again. If the page is still visible, the window did not close. These buttons do nothing to a browser you opened yourself. A browser other than Chromium or Firefox is named in the launcher log and is not pretended to have switched.
 
 Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's desktop is enough. **Setup** is on the dashboard.
 
@@ -75,4 +75,4 @@ Paused playback shows **Nothing playing** and **Paused**. The title, art, and pr
 
 ## What this build did not run
 
-The Windows notification area, a real NVAPI read, and the Pi on Debian 13 / labwc / Wayland were not executed here. Exit fullscreen was checked with a fake browser and, where a local display existed, Chromium under X11. That is not a Wayland result. The dashboard screenshots are the Pi page in demo mode.
+The Windows notification area, a real NVAPI read, and the Pi on Debian 13 / labwc / Wayland were not executed here. The window launcher was checked with a fake browser that exits after opening a window. That is not a Wayland result. The dashboard screenshots are the Pi page in demo mode.
