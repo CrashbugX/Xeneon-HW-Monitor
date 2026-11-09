@@ -28,9 +28,9 @@ PYTHONPATH=client python3 -m xeneon --config "$HOME/.config/xeneon/client.json"
 sh client/scripts/install.sh
 ```
 
-That script refuses root. It adds a user systemd service and one labwc autostart line, and it removes the old XDG autostart file. The menu item resumes a closed dashboard. It does not edit boot configuration. `sh client/scripts/uninstall.sh` stops the owned dashboard window and removes those entries. Tokens stay unless you pass `--purge-config`. `sh client/scripts/update.sh` reinstalls from this tree. `sh client/scripts/update-from-github.sh` downloads the public archive and then runs install. Client version is 0.2.1.
+That script refuses root. It adds a user systemd service and one labwc autostart line, and it removes the old XDG autostart file. The menu item resumes a closed dashboard. It does not edit boot configuration. `sh client/scripts/uninstall.sh` stops the owned dashboard window and removes those entries. Tokens stay unless you pass `--purge-config`. `sh client/scripts/update.sh` reinstalls from this tree. `sh client/scripts/update-from-github.sh` downloads the public archive and then runs install. Client version is 0.2.2.
 
-`sh client/scripts/kiosk.sh supervise` owns one browser in a private profile. Exit fullscreen relaunches it without `--kiosk`. Close dashboard pauses it for this login. The bridge keeps running. If there is no display and `XENEON_BROWSER` is unset, it does not launch a browser. A missing Chromium or Firefox is reported. The script does not pass extra flags through the shell and does not guess Wayland versus X11.
+`sh client/scripts/kiosk.sh supervise` owns one browser in a private profile. The dashboard button says Fullscreen or Exit fullscreen from the mode that launcher last started. Repeating it does not open another window. Close dashboard pauses it for this login. The bridge keeps running. If there is no display and `XENEON_BROWSER` is unset, it does not launch a browser. A missing Chromium or Firefox is reported. The script does not pass extra flags through the shell and does not guess Wayland versus X11.
 
 Power-cut behavior and the optional overlay check are in `docs/POWER.md`.
 
