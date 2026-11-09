@@ -7,11 +7,19 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+  <!-- Outside the scaled stage so the targets stay 44px on a touch panel. -->
+  <div id="window-bar">
+    <button id="setup-open" type="button">Setup</button>
+    <button id="win-window" type="button">Exit fullscreen</button>
+    <button id="win-full" type="button">Fullscreen</button>
+    <button id="win-close" type="button">Close dashboard</button>
+    <p id="win-note" class="win-note" hidden></p>
+  </div>
   <!-- The shell is in the HTML so a slow script still shows Connecting, not a blank page. -->
   <div id="fit">
     <div id="stage">
       <header>
-        <div class="brand"><strong>SYSTEM</strong> <span>/ OVERVIEW</span> <button id="setup-open" type="button">Setup</button></div>
+        <div class="brand"><strong>SYSTEM</strong> <span>/ OVERVIEW</span></div>
         <div id="banner" class="banner connecting">CONNECTING · waiting for the Windows host</div>
         <div class="wifi">
           <div id="wifi-ssid">Wi-Fi unavailable</div>
@@ -42,6 +50,11 @@
         <button type="button" data-tab="layout">Layout</button>
         <button type="button" data-tab="spotify">Spotify</button>
       </nav>
+      <p>
+        <button id="win-window-2" type="button">Exit fullscreen</button>
+        <button id="win-full-2" type="button">Fullscreen</button>
+        <button id="win-close-2" type="button">Close dashboard</button>
+      </p>
       <p id="setup-status">Loading.</p>
       <div data-panel="host">
         <p>Discovery broadcasts no token. If the network blocks it, type the Windows address.</p>

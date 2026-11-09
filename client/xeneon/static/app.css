@@ -20,9 +20,34 @@ html, body {
   color: var(--text);
   font-family: "Segoe UI", "Inter", system-ui, sans-serif;
 }
+#window-bar {
+  position: fixed;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(11, 13, 17, 0.94);
+}
+#window-bar button {
+  font: inherit;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #343a44;
+  background: #f4f6f8;
+  color: #12141a;
+}
+#window-bar .win-note { flex-basis: 100%; margin: 0; }
 #fit {
   width: 100vw;
-  height: 100vh;
+  height: calc(100vh - 64px);
+  margin-top: 64px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -128,7 +153,8 @@ button.transport.primary { color: var(--text); border-color: #465266; background
 .level-yellow { color: var(--yellow); background: #2c280f; border-color: #8a7420; }
 .level-orange { color: var(--orange); background: #2e1c0e; border-color: #a85a16; }
 .level-red { color: var(--red); background: #2e1214; border-color: #a82828; }
-#setup-open, .setup button, .setup input {
+.win-note { margin: 8px 0 0; color: var(--yellow); font-size: 15px; max-width: 52rem; }
+#setup-open, .brand button, .setup button, .setup input {
   font: inherit;
   min-height: 44px;
 }
@@ -158,7 +184,7 @@ img.art { object-fit: cover; }
 #stage.compact #load, #stage.compact #stats, #stage.compact #cases, #stage.compact .wifi {
   position: static; width: auto; height: auto; left: auto; right: auto; top: auto;
 }
-#fit:has(#stage.compact) { display: block; height: auto; min-height: 100vh; overflow: auto; }
+#fit:has(#stage.compact) { display: block; height: auto; min-height: calc(100vh - 64px); overflow: auto; }
 #stage.compact .temp-card, #stage.compact .panel, #stage.compact .stat { margin-top: 12px; }
 #stage.compact .temp-card { height: auto; min-height: 460px; overflow: hidden; }
 #stage.compact canvas.graph { position: relative; top: auto; left: auto; right: auto; width: 100%; height: 140px; margin-top: 8px; }

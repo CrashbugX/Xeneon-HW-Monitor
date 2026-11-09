@@ -17,11 +17,13 @@ let painted = "";
 let barShown = new Array(16).fill(0);
 
 const stage = document.getElementById("stage");
+const fit = document.getElementById("fit");
 const banner = document.getElementById("banner");
 const footer = document.getElementById("footer");
 
 /**
- * Scale the 2560x720 stage to the window. Local layout does not wait on the network.
+ * Scale the 2560x720 stage to the area under the window bar.
+ * Local layout does not wait on the network.
  */
 function fitStage() {
   const narrow = window.innerWidth < 1100 || window.innerHeight < 500 || (window.innerHeight > window.innerWidth && window.innerWidth < 1400);
@@ -30,7 +32,9 @@ function fitStage() {
     stage.style.transform = "none";
     return;
   }
-  const scale = Math.min(window.innerWidth / 2560, window.innerHeight / 720);
+  const width = fit ? fit.clientWidth : window.innerWidth;
+  const height = fit ? fit.clientHeight : window.innerHeight;
+  const scale = Math.min(width / 2560, height / 720);
   stage.style.transform = "scale(" + scale + ")";
 }
 
@@ -627,6 +631,42 @@ function el(tag, className, text) {
   return node;
 }
 
+async function windowAction(action) {
+  const note = document.getElementById("win-note");
+  if (!setupToken) {
+    await loadSetup();
+  }
+  const response = await fetch("/api/window", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify({ action: action })
+  });
+  const payload = await response.json();
+  if (note) {
+    note.hidden = false;
+    note.textContent = payload.detail || "The dashboard window did not report a change.";
+  }
+  if (action === "close" && payload.applied) {
+    try {
+      window.close();
+    } catch (error) {
+      /* A browser may refuse window.close. The note below stays honest. */
+    }
+    setTimeout(function () {
+      if (!note) {
+        return;
+      }
+      note.hidden = false;
+      note.textContent = "If this dashboard is still open, the window did not close. Reopen it later from the Xeneon HW Monitor menu. The bridge keeps running.";
+    }, 1500);
+  }
+}
+document.getElementById("win-window").addEventListener("click", function () { windowAction("windowed"); });
+document.getElementById("win-full").addEventListener("click", function () { windowAction("fullscreen"); });
+document.getElementById("win-close").addEventListener("click", function () { windowAction("close"); });
+document.getElementById("win-window-2").addEventListener("click", function () { windowAction("windowed"); });
+document.getElementById("win-full-2").addEventListener("click", function () { windowAction("fullscreen"); });
+document.getElementById("win-close-2").addEventListener("click", function () { windowAction("close"); });
 document.getElementById("setup-open").addEventListener("click", openSetup);
 document.getElementById("setup-close").addEventListener("click", () => {
   document.getElementById("setup").hidden = true;
