@@ -145,59 +145,32 @@ sleep_interruptible() {
 }
 
 ensure_bridge
-penalty=2
 while true; do
-  python3 -m xeneon.kioskctl reconcile >/dev/null || true
-  mode=$(python3 -m xeneon.kioskctl read-mode || true)
-  if [ -z "$mode" ]; then
-    mode=fullscreen
-  fi
   kick=0
-  if [ "$mode" = "paused" ]; then
-    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
-    if [ -z "$(python3 -m xeneon.kioskctl main-pids)" ]; then
-      python3 -m xeneon.kioskctl ack paused
-    fi
-    wait_kick
-    continue
-  fi
   browser=$(choose_browser || true)
   if [ -z "$browser" ]; then
     echo "No graphical display. Bridge URL http://127.0.0.1:$PORT/ . Resume the window from the Xeneon menu when a desktop is open."
     wait_kick
     continue
   fi
+  # One attempt. A Chromium handoff exit must not schedule another launch.
+  python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+  mode=$(python3 -m xeneon.kioskctl read-mode || true)
   applied=$(python3 -m xeneon.kioskctl read-applied || true)
-  kept=$(python3 -m xeneon.kioskctl retain-one || true)
-  if [ -n "$kept" ] && [ "$applied" = "$mode" ]; then
-    echo "$kept" > "$RUNTIME/browser.pid"
-    wait_for_pid_or_kick "$kept"
-    continue
-  fi
-  mode=$(python3 -m xeneon.kioskctl read-mode || true)
-  if [ "$mode" = "paused" ]; then
-    continue
-  fi
-  if [ -n "$kept" ]; then
-    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
-  fi
-  mode=$(python3 -m xeneon.kioskctl read-mode || true)
-  if [ -z "$mode" ] || [ "$mode" = "paused" ]; then
-    continue
-  fi
-  start_browser "$mode" "$browser" || true
-  now=$(python3 -m xeneon.kioskctl read-mode || true)
-  if [ "$now" != "$mode" ]; then
-    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
-    continue
-  fi
-  if [ -n "$(python3 -m xeneon.kioskctl main-pids)" ]; then
-    python3 -m xeneon.kioskctl ack "$mode"
-    penalty=2
-    continue
-  fi
-  sleep_interruptible "$penalty"
-  if [ "$penalty" -lt 8 ]; then
-    penalty=$((penalty * 2))
-  fi
+  pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
+  while [ "$kick" -eq 0 ]; do
+    now=$(python3 -m xeneon.kioskctl read-mode || true)
+    held=$(python3 -m xeneon.kioskctl read-applied || true)
+    if [ "$now" != "$held" ]; then
+      break
+    fi
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    if [ -z "$pid" ] && [ "$now" != "paused" ]; then
+      break
+    fi
+    sleep 0.5 &
+    wait $! || true
+  done
 done
