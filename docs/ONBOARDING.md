@@ -4,13 +4,13 @@ You do not export a sensor JSON file or paste a token between the PCs.
 
 ## Windows
 
-1. Run `XeneonHwMonitorHost-0.2.0-win-x64.exe`. Leave the service section unchecked. Check the firewall section only if you want setup, which is already elevated, to add the Private-network rules below.
-2. Open **Xeneon HW Monitor** from the Start menu. That opens the settings window, not a command prompt. Closing the window leaves the app running. **Exit** stops it. When the shell shows a tray icon, **Open** shows the window again. This installer does not add a Windows logon shortcut. The optional service is manual and is not started. The notification area was not exercised in the build environment.
+1. Run `XeneonHwMonitorHost-0.3.0-win-x64.exe` once by hand. Version 0.2.0 has no updater, so this first step is still manual. Later releases use **Update now** in the host. Leave the service section unchecked. Setup adds the firewall rules and a logon task. It does not uninstall the previous copy, so settings and pairing tokens stay.
+2. Open **Xeneon HW Monitor** from the Start menu. Windows asks for administrator once because the program requires it. Closing the window hides it and shows a one-time notice. The tray icon opens it again. Right-click that icon for **Open**, **Start with Windows**, **Check for updates**, and **Exit**. Exit is not on the window. The logon task starts the host hidden in the tray. It is not a Run registry key. The optional service is manual and is not started.
 3. Poll interval is in seconds, from 0.5 through 3600. Apply poll saves it for the next sample.
 4. The window shows the telemetry, inventory, and discover URLs for the current port. Copy does not put a token in the URL. Apply port moves the listener and updates those URLs. It does not edit a firewall rule. If the new port cannot be bound, the previous port is restored and the window says so.
 5. When the Pi requests a code, the window shows it. Click **Approve pairing**, then submit that code on the Pi. A request is not approved by itself. Five wrong codes or two minutes cancel it.
 6. Paired devices are listed by name and last-seen time. Choose one and click **Revoke this device**. There is no id to type. Revoke deletes that device's stored token hash.
-7. Pi power-off is not armed by this window or by a normal install. The optional service still has no shutdown config until you opt in later.
+7. **Power off the paired Pi when Windows shuts down or restarts** is on. Tray Exit, hiding the window, and signing out do not use it. A Windows shutdown or restart asks only a paired Pi, on `POST /v1/poweroff`, then waits until the Pi reports halt or the short absent bound. Client 0.4.2 creates the shutdown token, sends it when pairing finishes, and sends it again on later connections so an already-paired Pi does not pair twice. The Pi listens on port 8766 and accepts that token only from the paired PC. Setup on the Pi has **Allow PC to power off this Pi**, on by default. Fan duty is not written. One sudo password installs the helper: `sudo sh client/scripts/install-poweroff-sudo.sh`. Install prints that line if it is not installed yet.
 
 ## Private-network firewall
 
@@ -18,7 +18,7 @@ The Pi sends a UDP query to discovery port 8764 unless you changed `discoveryPor
 
 Windows often blocks those inbound packets on a Private network. `Repair-PrivateFirewall.ps1` deletes this app's old rules and adds inbound TCP for the publish port and inbound UDP for the discovery port. Both are Private profile and local subnet only. Public and Domain are not opened. The firewall is not turned off.
 
-The installer runs that script only if you check the firewall section. Later, run it yourself in an elevated PowerShell. The settings window explains why and does not open the administrator prompt. Run it again after a port change: the listener moves immediately, and the old rule still names the previous port until the script runs.
+Setup adds the rules. If they are missing, the window says so and **Fix firewall** adds them again. The program is already elevated. After a port change, click it again so the rule name matches the port.
 
 ## Raspberry Pi
 
@@ -44,7 +44,7 @@ grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
 
 Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
 
-The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Fullscreen uses the browser’s own fullscreen control from that click. Chromium is not opened again. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the window does not change, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. Close dashboard still pauses the owned window. The bridge, pairing, and Spotify login stay.
+The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Close sets paused before Chromium is stopped, and the supervisor does not start another window while that flag is set. A second `kiosk.sh` finds `kiosk.lock` held and focuses the existing window. Fullscreen uses the browser’s own fullscreen control from that click. Chromium is not opened again. The window is started at 2560×720. A saved Chromium window size is cleared first. `wlr-randr` output is written to the window log and the mode is not changed. Optional: `sudo apt install wlr-randr`. The page logs its inner width, inner height, and device pixel ratio on the same log. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the window does not change, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. Close dashboard still pauses the owned window. The bridge, pairing, and Spotify login stay.
 
 If the PC’s address changes, the Pi repeats discovery on UDP 8764 and tries the stored token. A host that accepts the token is used. Pairing is not repeated. A live connection has no banner. **Disconnected from PC** appears when samples stop. The keyboard button is visible only while Setup is open. Click the dim area around Setup to close it.
 
