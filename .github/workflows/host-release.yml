@@ -1,0 +1,49 @@
+# Builds the Windows host installer when a host release tag is pushed.
+# Tag the release host-vX.Y.Z, for example host-v0.3.0.
+# The asset name must be XeneonHwMonitorHost-X.Y.Z-win-x64.exe.
+# Put SHA-256: and 64 hex digits in the release notes, or attach
+# XeneonHwMonitorHost-X.Y.Z-win-x64.exe.sha256.
+# The updater does not install anything until Update now is clicked.
+# Client 0.4.1 has no updater, so the first install of 0.3.0 is still manual.
+name: Host installer
+
+on:
+  push:
+    tags:
+      - "host-v*"
+  workflow_dispatch:
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install NSIS
+        run: choco install nsis -y
+      - name: Publish and wrap
+        shell: pwsh
+        run: |
+          $pay = Join-Path $env:RUNNER_TEMP "xeneon-payload"
+          dotnet publish host/src/Diego.Telemetry.Host/Diego.Telemetry.Host.csproj -c Release -r win-x64 --self-contained true -p:PublishTrimmed=false -o $pay
+          dotnet publish host/src/Diego.Telemetry.Desktop/Diego.Telemetry.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishTrimmed=false -o $pay
+          New-Item -ItemType Directory -Force -Path "$pay\config" | Out-Null
+          Copy-Item host/config/example.host.json "$pay\config\example.host.json"
+          Copy-Item host/config/example.shutdown.json "$pay\config\shutdown.example.json"
+          Copy-Item host/installer/FIREWALL.txt "$pay\FIREWALL.txt"
+          Copy-Item host/installer/Repair-PrivateFirewall.ps1 "$pay\Repair-PrivateFirewall.ps1"
+          Copy-Item host/installer/shortcuts/*.cmd $pay
+          if (Test-Path LICENSE) { Copy-Item LICENSE "$pay\LICENSE.txt" }
+          $ver = (Select-String -Path host/installer/XeneonHost.nsi -Pattern '!define PRODUCT_VERSION "([^"]+)"').Matches[0].Groups[1].Value
+          makensis -DPAYLOAD="$pay" host/installer/XeneonHost.nsi
+          New-Item -ItemType Directory -Force -Path host/installer/dist | Out-Null
+          $exe = "host/installer/XeneonHwMonitorHost-$ver-win-x64.exe"
+          Move-Item $exe "host/installer/dist/" -Force
+          python host/installer/fix-pe-checksum.py "host/installer/dist/XeneonHwMonitorHost-$ver-win-x64.exe"
+          Get-FileHash "host/installer/dist/XeneonHwMonitorHost-$ver-win-x64.exe" -Algorithm SHA256 | Out-File "host/installer/dist/XeneonHwMonitorHost-$ver-win-x64.exe.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-installer
+          path: host/installer/dist/*
