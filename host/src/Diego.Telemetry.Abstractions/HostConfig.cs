@@ -25,6 +25,18 @@ public sealed class HostConfig
 
     public bool DiscoveryEnabled { get; set; } = true;
 
+    /// <summary>Logon task. Default on. The installer skips it when the off marker exists.</summary>
+    public bool StartWithWindows { get; set; } = true;
+
+    /// <summary>
+    /// Ask the paired Pi to halt when Windows shuts down or restarts.
+    /// Tray Exit does not use this. Default on. The checkbox turns it off.
+    /// </summary>
+    public bool PowerOffPiOnShutdown { get; set; } = true;
+
+    /// <summary>The first hide-to-tray hint has already been shown.</summary>
+    public bool TrayHintShown { get; set; }
+
     public double StaleAfterSeconds { get; set; } = 5;
 
     public RoleMap Roles { get; set; } = new();
