@@ -49,6 +49,13 @@ async function refreshView() {
       return;
     }
     view = await response.json();
+    if (view.theme === "day" || view.theme === "night") {
+      document.documentElement.dataset.theme = view.theme;
+      const themeButton = document.getElementById("gear-theme");
+      if (themeButton) {
+        themeButton.textContent = view.theme === "day" ? "Use night mode" : "Use day mode";
+      }
+    }
     const next = JSON.stringify(view);
     if (next !== painted) {
       painted = next;
@@ -165,7 +172,10 @@ function paintTemp(key, title) {
   card.append(canvas);
   drawGraph(canvas, data.history, levelColor(level));
   const fans = el("div", "fans");
-  const list = data.fans && data.fans.length ? data.fans : [{ name: key === "cpu" ? "CPU FAN" : "GPU FAN", rpm: null }];
+  const assigned = ((view && view.fanBoard) || []).filter(function (fan) { return fan.role === key; });
+  const list = assigned.length
+    ? assigned.map(function (fan) { return { name: fan.label || fan.sensorName || key, rpm: fan.rpm }; })
+    : (data.fans && data.fans.length ? data.fans : [{ name: key === "cpu" ? "CPU FAN" : "GPU FAN", rpm: null }]);
   for (const fan of list) {
     fans.append(fanNode(fan));
   }
@@ -426,24 +436,53 @@ function paintSpotify() {
   }
   const controls = el("div", "controls");
   const live = !view.demo && spot.connected;
-  controls.append(actionButton("Previous", live && !!spot.canSkip, live ? "previous" : (view.demo ? null : null)));
-  if (view.demo && spot.playing) {
-    controls.append(actionButton("Pause", true, "pause"));
-  } else if (view.demo && !spot.playing) {
-    controls.append(actionButton("Play", true, "play"));
-  } else if (live && spot.canPause) {
-    controls.append(actionButton("Pause", true, "pause"));
-  } else if (live && spot.canPlay) {
-    controls.append(actionButton("Play", true, "play"));
-  } else {
-    controls.append(actionButton("Play", false, null));
+  controls.append(iconButton("Previous track", live && !!spot.canSkip, live ? "previous" : null, iconPrevious()));
+  let playLabel = "Play";
+  let playAction = null;
+  let playIcon = iconPlay();
+  if ((view.demo && spot.playing) || (live && spot.canPause)) {
+    playLabel = "Pause";
+    playAction = "pause";
+    playIcon = iconPause();
+  } else if ((view.demo && !spot.playing) || (live && spot.canPlay)) {
+    playLabel = "Play";
+    playAction = "play";
+    playIcon = iconPlay();
   }
-  controls.append(actionButton("Next", live && !!spot.canSkip, live ? "next" : null));
+  controls.append(iconButton(playLabel, view.demo || (live && (spot.canPause || spot.canPlay)), playAction, playIcon));
+  controls.append(iconButton("Next track", live && !!spot.canSkip, live ? "next" : null, iconNext()));
   root.append(controls);
   const toggles = el("div", "toggles");
-  toggles.append(actionButton("Shuffle " + (spot.shuffle || "off"), view.demo || (live && !!spot.canShuffle), view.demo || live ? "shuffle" : null));
-  toggles.append(actionButton("Repeat " + (spot.repeat || "off"), view.demo || (live && !!spot.canRepeat), view.demo || live ? "repeat" : null));
+  const shuffleOn = spot.shuffle === "on";
+  toggles.append(iconButton(shuffleOn ? "Shuffle on" : "Shuffle off", view.demo || (live && !!spot.canShuffle), view.demo || live ? "shuffle" : null, iconShuffle(), shuffleOn));
+  const repeat = spot.repeat || "off";
+  const repeatLabel = repeat === "one" ? "Repeat one" : (repeat === "all" ? "Repeat all" : "Repeat off");
+  toggles.append(iconButton(repeatLabel, view.demo || (live && !!spot.canRepeat), view.demo || live ? "repeat" : null, iconRepeat(repeat), repeat !== "off"));
   root.append(toggles);
+}
+
+function iconButton(label, enabled, action, svg, active) {
+  const button = document.createElement("button");
+  button.className = "transport" + (enabled ? " primary" : "") + (active ? " on" : "");
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = svg;
+  button.disabled = !enabled;
+  if (action && enabled) {
+    button.addEventListener("click", () => postAction(action));
+  }
+  return button;
+}
+
+function iconPrevious() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>'; }
+function iconNext() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>'; }
+function iconPlay() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'; }
+function iconPause() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>'; }
+function iconShuffle() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M14 4h6v6h-2V7.4l-3.3 3.3-1.4-1.4L16.6 6H14V4zM4 6h4.6l3.2 3.2-1.4 1.4L7.2 8H4V6zm8.8 7.4 1.4 1.4L11 18h2.6v2H8v-6h2v2.6l2.8-2.8zM16.6 16l3.3-3.3 1.4 1.4L18 17.4V20h-2v-6h2v2.6z"/></svg>'; }
+function iconRepeat(mode) {
+  const one = mode === "one" ? '<text x="9" y="16" font-size="8" fill="currentColor">1</text>' : "";
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 7h10V4l4 4-4 4V9H7v3L3 8l4-4v3zm10 10H7v3l-4-4 4-4v3h10v-3l4 4-4 4v-3z"/>' + one + "</svg>";
 }
 
 /**
@@ -515,6 +554,12 @@ async function paintSetup() {
   if (clientId && payload.spotifyClientId) {
     clientId.value = payload.spotifyClientId;
   }
+  document.documentElement.dataset.theme = payload.theme === "day" ? "day" : "night";
+  const themeButton = document.getElementById("gear-theme");
+  if (themeButton) {
+    themeButton.textContent = payload.theme === "day" ? "Use night mode" : "Use day mode";
+  }
+  paintFans(payload.fans || []);
   document.getElementById("setup-status").textContent = payload.demo
     ? "Demo is on. Pairing and Spotify login stay available, and demo numbers stay labelled."
     : (payload.paired ? "Paired with " + (payload.hostUrl || "the host") + "." : "Not paired yet.");
@@ -553,6 +598,7 @@ async function pairHost() {
   await sendPair(document.getElementById("setup-code").value);
 }
 
+// Request code posts the selected host only. The manual address is not read here.
 async function sendPair(code) {
   if (!setupToken) {
     await loadSetup();
@@ -647,21 +693,15 @@ let postInFlight = false;
 
 function paintWindowControls() {
   const locked = controlsLocked || windowState.pending;
-  ["win-toggle", "win-toggle-2"].forEach(function (id) {
-    const button = document.getElementById(id);
-    if (!button) {
-      return;
-    }
-    button.textContent = windowState.label || "Fullscreen";
-    button.disabled = locked || !windowState.enabled || !windowState.action;
-  });
-  ["win-close", "win-close-2"].forEach(function (id) {
-    const button = document.getElementById(id);
-    if (!button) {
-      return;
-    }
-    button.disabled = locked || !windowState.closeEnabled;
-  });
+  const toggle = document.getElementById("gear-window");
+  if (toggle) {
+    toggle.textContent = windowState.label || "Fullscreen";
+    toggle.disabled = locked || !windowState.enabled || !windowState.action;
+  }
+  const close = document.getElementById("gear-close");
+  if (close) {
+    close.disabled = locked || !windowState.closeEnabled;
+  }
   const note = document.getElementById("win-note");
   if (note && windowState.detail) {
     note.hidden = false;
@@ -744,23 +784,109 @@ async function windowAction(action) {
   await waitForLauncher();
 }
 
-document.getElementById("win-toggle").addEventListener("click", function () {
+function paintFans(fans) {
+  const list = document.getElementById("fan-list");
+  if (!list) {
+    return;
+  }
+  list.replaceChildren();
+  if (!fans.length) {
+    list.append(el("p", "", "No fan tachometers in the latest host inventory."));
+    return;
+  }
+  fans.forEach(function (fan) {
+    const row = el("div", "fan-row");
+    const title = fan.label || fan.sensorName || "Fan";
+    row.append(el("strong", "", title));
+    row.append(el("div", "sub", (fan.hardwareName || "Unknown hardware") + " · " + fan.id));
+    const rpm = fan.rpm == null ? "no sample" : Math.round(fan.rpm) + " RPM";
+    const range = fan.samples ? ("seen " + (fan.minRpm == null ? "—" : Math.round(fan.minRpm)) + "–" + (fan.maxRpm == null ? "—" : Math.round(fan.maxRpm)) + " RPM over " + fan.samples + " samples") : "no observed range yet";
+    row.append(el("div", "", rpm + " · " + range + ". Not a physical limit."));
+    const role = document.createElement("select");
+    ["unknown", "cpu", "gpu", "case", "other"].forEach(function (name) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      if (fan.role === name) {
+        option.selected = true;
+      }
+      role.append(option);
+    });
+    const label = document.createElement("input");
+    label.value = fan.label || "";
+    label.maxLength = 40;
+    label.setAttribute("aria-label", "Name for " + fan.id);
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Save";
+    save.addEventListener("click", function () {
+      postSetup("/api/setup/fan", { id: fan.id, op: "save", label: label.value, role: role.value });
+    });
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.textContent = "Reset range";
+    reset.addEventListener("click", function () { postSetup("/api/setup/fan", { id: fan.id, op: "reset" }).then(paintSetup); });
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = "Clear range";
+    clear.addEventListener("click", function () { postSetup("/api/setup/fan", { id: fan.id, op: "clear" }).then(paintSetup); });
+    row.append(label);
+    row.append(role);
+    row.append(save);
+    row.append(reset);
+    row.append(clear);
+    list.append(row);
+  });
+}
+
+async function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "day" ? "night" : "day";
+  await postSetup("/api/setup/theme", { theme: next });
+  await paintSetup();
+}
+
+async function toggleKeyboard() {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  const response = await fetch("/api/keyboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify({ action: "toggle" })
+  });
+  const payload = await response.json();
+  const note = document.getElementById("win-note");
+  const menu = document.getElementById("gear-menu");
+  if (menu) {
+    menu.hidden = false;
+  }
+  if (note) {
+    note.hidden = false;
+    note.textContent = payload.detail || "The keyboard did not change.";
+  }
+  document.getElementById("osk").setAttribute("aria-expanded", payload.visible ? "true" : "false");
+}
+
+document.getElementById("gear").addEventListener("click", function () {
+  const menu = document.getElementById("gear-menu");
+  menu.hidden = !menu.hidden;
+  document.getElementById("gear").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+});
+document.getElementById("gear-window").addEventListener("click", function () {
   if (!windowState.action) {
     return;
   }
   windowAction(windowState.action);
 });
-document.getElementById("win-toggle-2").addEventListener("click", function () {
-  if (!windowState.action) {
-    return;
-  }
-  windowAction(windowState.action);
+document.getElementById("gear-close").addEventListener("click", function () { windowAction("close"); });
+document.getElementById("gear-setup").addEventListener("click", function () {
+  document.getElementById("gear-menu").hidden = true;
+  openSetup();
 });
-document.getElementById("win-close").addEventListener("click", function () { windowAction("close"); });
-document.getElementById("win-close-2").addEventListener("click", function () { windowAction("close"); });
+document.getElementById("gear-theme").addEventListener("click", toggleTheme);
+document.getElementById("osk").addEventListener("click", toggleKeyboard);
 refreshWindow();
 setInterval(refreshWindow, 1000);
-document.getElementById("setup-open").addEventListener("click", openSetup);
 document.getElementById("setup-close").addEventListener("click", () => {
   document.getElementById("setup").hidden = true;
 });
@@ -785,6 +911,9 @@ document.querySelectorAll("#setup nav button").forEach((button) => {
 refreshView();
 setInterval(refreshView, 250);
 requestAnimationFrame(render);
+if (location.search.indexOf("gear=1") >= 0) {
+  document.getElementById("gear-menu").hidden = false;
+}
 if (location.search.indexOf("setup=1") >= 0) {
   openSetup();
   const tab = new URLSearchParams(location.search).get("tab");

@@ -7,16 +7,22 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <!-- Outside the scaled stage so the targets stay 44px on a touch panel. -->
-  <div id="window-bar">
-    <div class="bar-actions">
-      <button id="setup-open" type="button">Setup</button>
-      <button id="win-toggle" type="button" disabled>Fullscreen</button>
-      <span class="bar-gap"></span>
-      <button id="win-close" type="button" disabled>Close dashboard</button>
-    </div>
+  <button id="gear" type="button" aria-label="Settings" aria-expanded="false" aria-controls="gear-menu">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2.6-1.5L14 2h-4l-.4 2.5a7.4 7.4 0 0 0-2.6 1.5l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0-.1 1.5 7.7 7.7 0 0 0 .1 1.5l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2.6 1.5L10 22h4l.4-2.5a7.4 7.4 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.6zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>
+  </button>
+  <div id="gear-menu" class="gear-menu" hidden>
+    <button id="gear-setup" type="button">Setup</button>
+    <button id="gear-window" type="button" disabled>Fullscreen</button>
+    <button id="gear-theme" type="button">Use day mode</button>
     <p id="win-note" class="win-note" hidden></p>
+    <div class="gear-danger">
+      <button id="gear-close" type="button" disabled>Close dashboard</button>
+    </div>
   </div>
+  <button id="osk" type="button" aria-label="On-screen keyboard" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm1 3v2h2V8H5zm4 0v2h2V8H9zm4 0v2h2V8h-2zm4 0v2h2V8h-2zM5 12v2h4v-2H5zm6 0v2h8v-2h-8z"/></svg>
+    <span class="osk-arrow" aria-hidden="true"></span>
+  </button>
   <!-- The shell is in the HTML so a slow script still shows Connecting, not a blank page. -->
   <div id="fit">
     <div id="stage">
@@ -51,18 +57,15 @@
         <button type="button" data-tab="host">Host</button>
         <button type="button" data-tab="layout">Layout</button>
         <button type="button" data-tab="spotify">Spotify</button>
+        <button type="button" data-tab="fans">Fans</button>
       </nav>
-      <div class="bar-actions setup-windows">
-        <button id="win-toggle-2" type="button" disabled>Fullscreen</button>
-        <span class="bar-gap"></span>
-        <button id="win-close-2" type="button" disabled>Close dashboard</button>
-      </div>
+      <p class="setup-window-note">Fullscreen and Close dashboard are in the gear menu so they are not beside these fields.</p>
       <p id="setup-status">Loading.</p>
       <div data-panel="host">
         <p>Discovery broadcasts no token. If the network blocks it, type the Windows address.</p>
         <button id="setup-discover" type="button">Find hosts</button>
         <div id="setup-hosts"></div>
-        <label>Manual address <input id="setup-manual" placeholder="192.168.1.40"></label>
+        <label>Manual address <input id="setup-manual" placeholder="optional"></label>
         <label>Port <input id="setup-port" value="8765" inputmode="numeric"></label>
         <label>Selected host <input id="setup-address" placeholder="http://192.168.1.40:8765"></label>
         <label>Pairing code <input id="setup-code" inputmode="numeric" autocomplete="one-time-code"></label>
@@ -78,6 +81,11 @@
         <label><input id="mod-fans" type="checkbox"> Fans</label>
         <label><input id="mod-spotify" type="checkbox"> Spotify</label>
         <button id="setup-layout" type="button">Save layout</button>
+      </div>
+      <div data-panel="fans" hidden>
+        <p>Every fan the host inventory lists. A role stays unknown until you choose one. Nothing here changes fan speed.</p>
+        <p>Seen speeds are samples so far, not the fan's physical minimum or maximum. Use Fan Control if you want to move a fan. This app does not write duty or sweep RPM.</p>
+        <div id="fan-list"></div>
       </div>
       <div data-panel="spotify" hidden>
         <p>Connect Spotify opens Spotify's own page in this browser. Approve it there. This app does not ask for your password or a client secret.</p>
