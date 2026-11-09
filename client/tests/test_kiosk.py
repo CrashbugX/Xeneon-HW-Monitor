@@ -18,6 +18,7 @@ from pathlib import Path
 from xeneon.bridge import Bridge
 from xeneon.kioskctl import (
     acknowledge,
+    apply_launched_mode,
     browser_argv,
     callback_page,
     handoff,
@@ -317,6 +318,53 @@ class WindowApiTests(unittest.TestCase):
             bridge.stop()
 
 
+class HandoffTests(unittest.TestCase):
+    def test_a_starter_that_exits_is_not_launched_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            log = root / "browser.log"
+            browser = root / "fake-browser"
+            browser.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' \"$*\" >> \"$XENEON_FAKE_LOG\"\n"
+                "case \" $* \" in\n"
+                "  *' --hold '*) sleep 30 ;;\n"
+                "  *) \"$0\" --hold \"$@\" >/dev/null 2>&1 & ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            browser.chmod(browser.stat().st_mode | stat.S_IEXEC)
+            profile = root / "profile"
+            previous = {key: os.environ.get(key) for key in ("XENEON_RUNTIME_DIR", "XENEON_BROWSER_PROFILE", "XENEON_FAKE_LOG")}
+            os.environ["XENEON_RUNTIME_DIR"] = str(runtime)
+            os.environ["XENEON_BROWSER_PROFILE"] = str(profile)
+            os.environ["XENEON_FAKE_LOG"] = str(log)
+            try:
+                first = apply_launched_mode(str(browser), 8734, profile)
+                self.assertTrue(first["stable"])
+                parents = [line for line in log.read_text(encoding="utf-8").splitlines() if "--hold" not in line]
+                self.assertEqual(1, len(parents))
+                second = apply_launched_mode(str(browser), 8734, profile)
+                self.assertTrue(second["stable"])
+                parents = [line for line in log.read_text(encoding="utf-8").splitlines() if "--hold" not in line]
+                self.assertEqual(1, len(parents))
+                write_mode("windowed", runtime)
+                third = apply_launched_mode(str(browser), 8734, profile)
+                self.assertTrue(third["stable"])
+                windowed = [line for line in log.read_text(encoding="utf-8").splitlines() if "--new-window" in line and "--hold" not in line]
+                self.assertEqual(1, len(windowed))
+            finally:
+                from xeneon.kioskctl import stop_owned_mains
+                stop_owned_mains(profile)
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+
 class FakeBrowserSmokeTests(unittest.TestCase):
     def test_supervisor_relaunches_without_kiosk_then_stays_paused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -376,13 +424,14 @@ class FakeBrowserSmokeTests(unittest.TestCase):
                 self.assertEqual(0, second.returncode)
                 self.assertIn("already running", second.stdout + second.stderr)
                 subprocess.check_call(["sh", str(script), "resume"], env=env)
-                time.sleep(0.5)
+                time.sleep(2)
                 resumed = log.read_text(encoding="utf-8")
                 self.assertGreater(resumed.count("--kiosk"), 0)
                 self.assertGreater(resumed.count("\n"), after)
             finally:
                 proc.send_signal(subprocess.signal.SIGTERM)
                 proc.wait(timeout=3)
+                subprocess.run(["python3", "-m", "xeneon.kioskctl", "stop-owned"], env=env, check=False)
 
     def test_exiting_starter_does_not_open_another_window(self):
         with tempfile.TemporaryDirectory() as tmp:
