@@ -42,6 +42,10 @@ PYTHONPATH=client python3 -m xeneon --demo --local-port 8734
 PYTHONPATH=client python3 -m unittest discover -s client/tests -v
 ```
 
+From the project folder, the first update after a GitHub web upload is `sh update`. That upload drops the executable bit. `install.sh` marks `update` executable, so later runs can be `./update`.
+
+
+
 ## Shared JSON
 
 `protocol/schemas/telemetry-snapshot-1.0.0.schema.json` is the only copy of schema 1.0.0. The host writes that shape. The future client should read it. Neither side downloads the schema at runtime.

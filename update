@@ -1,6 +1,9 @@
 #!/bin/sh
-# Update this project folder from GitHub. Run it as ./update from the folder
-# that contains client/. Config and tokens in ~/.config/xeneon are kept.
+# Update this project folder from GitHub. Config and tokens in ~/.config/xeneon
+# are kept. A GitHub web upload drops the executable bit, so the first run is:
+#   sh update
+# This marks update executable. After that, ./update works as well.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+chmod +x "$ROOT/update"
 exec sh "$ROOT/client/scripts/update-from-github.sh"

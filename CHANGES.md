@@ -1,3 +1,9 @@
+# Client 0.4.4
+
+The Spotify card matches the PrestoDeck mock. Album art cover-crops the whole 580×648 card. A color wash sampled from the art and a soft dark gradient at the bottom keep the title readable. The control row is always visible: shuffle, previous, a white circular play/pause, next, and repeat. Shuffle is the crossing arrows and repeat is the loop, white when off and Spotify green when on. Idle says Nothing playing. A paused track keeps its cover. Play is still offered only while paused, and pause only while playing.
+
+The gear menu closes on the next click. A click that is not a control only hides the menu. A click on a menu item or another dashboard control still runs that control, and the menu closes too.
+
 # Client 0.4.3
 
 The temperature line is the path of the displayed head. When a reading arrives, the head eases from its current value to that reading over the measured interval (smoothstep), and the big number is the same value. The time axis is the last 30 seconds of wall-clock time, so it scrolls at a constant speed. A missed reading holds. Several readings at once glide once to the newest. The interval is still the rolling median of recent gaps.
@@ -10,7 +16,7 @@ The gear menu uses the launcher's fullscreen mode until the page Fullscreen API 
 
 Wi-Fi is the SSID and the bars on one row. The SYSTEM / OVERVIEW title is gone and the cards use that space.
 
-`./update` in the project folder runs the GitHub update and prints that folder's path.
+`sh update` in the project folder runs the GitHub update and prints that folder's path. A web upload is not executable, so the first run is `sh update`. `install.sh` marks `update` executable, and later runs can be `./update`.
 
 # Client 0.4.2
 
