@@ -25,12 +25,12 @@ PYTHONPATH=client python3 -m xeneon --config "$HOME/.config/xeneon/client.json"
 ## Install
 
 ```sh
-client/scripts/install.sh
+sh client/scripts/install.sh
 ```
 
-That script refuses root. It adds a user systemd service and a desktop autostart entry. It does not edit boot configuration. `uninstall.sh` removes those entries. `update.sh` reinstalls them from this tree and restarts the user service. It does not download code.
+That script refuses root. It adds a user systemd service and one labwc autostart line, and it removes the old XDG autostart file. The menu item resumes a closed dashboard. It does not edit boot configuration. `sh client/scripts/uninstall.sh` stops the owned dashboard window and removes those entries. Tokens stay unless you pass `--purge-config`. `sh client/scripts/update.sh` reinstalls from this tree. `sh client/scripts/update-from-github.sh` downloads the public archive and then runs install. Client version is 0.2.1.
 
-If there is no `DISPLAY` or `WAYLAND_DISPLAY`, `kiosk.sh` does not loop a browser. Raspberry Pi Connect can open the localhost URL. A missing browser is reported. Extra browser flags, if a compositor needs them, go in `XENEON_BROWSER_FLAGS`. The script does not guess Wayland versus X11.
+`sh client/scripts/kiosk.sh supervise` owns one browser in a private profile. Exit fullscreen relaunches it without `--kiosk`. Close dashboard pauses it for this login. The bridge keeps running. If there is no display and `XENEON_BROWSER` is unset, it does not launch a browser. A missing Chromium or Firefox is reported. The script does not pass extra flags through the shell and does not guess Wayland versus X11.
 
 Power-cut behavior and the optional overlay check are in `docs/POWER.md`.
 
