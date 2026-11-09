@@ -153,15 +153,21 @@ while true; do
     wait_kick
     continue
   fi
-  # One attempt. A Chromium handoff exit must not schedule another launch.
-  python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+  # Launch only when the dashboard window is missing. A fullscreen toggle
+  # must not pass through apply, or Chromium opens another window.
   mode=$(python3 -m xeneon.kioskctl read-mode || true)
-  applied=$(python3 -m xeneon.kioskctl read-applied || true)
   pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
+  if [ "$mode" = "paused" ]; then
+    if [ -n "$pid" ]; then
+      python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+    fi
+  elif [ -z "$pid" ]; then
+    python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+    pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
+  fi
   while [ "$kick" -eq 0 ]; do
     now=$(python3 -m xeneon.kioskctl read-mode || true)
-    held=$(python3 -m xeneon.kioskctl read-applied || true)
-    if [ "$now" != "$held" ]; then
+    if [ "$now" = "paused" ] && [ -n "$pid" ]; then
       break
     fi
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
