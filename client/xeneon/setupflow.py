@@ -25,6 +25,9 @@ class SetupFlow:
         self.client_id = PUBLIC_SPOTIFY_CLIENT_ID
         self.theme = "night"
         self.fan_prefs: dict = {}
+        self.paired_name = ""
+        self.saved_host = ""
+        self.module_order = ["cpu", "gpu", "load", "memory", "fans", "spotify"]
         self._pairing_id = ""
         self._load()
 
@@ -48,9 +51,13 @@ class SetupFlow:
                 for key in self.modules:
                     if key in modules:
                         self.modules[key] = bool(modules[key])
-                self._save()
+            order = body.get("order")
+            if isinstance(order, list):
+                self.module_order = [name for name in order if name in self.modules]
+            self._save()
+            if bridge is not None:
                 bridge.session.modules = dict(self.modules)
-            return 200, {"ok": True, "modules": self.modules}
+            return 200, {"ok": True, "modules": self.modules, "moduleOrder": self.module_order}
         if path == "/api/setup/spotify-id":
             raw = str(body.get("clientId") or "")
             if any(character.isspace() for character in raw) or len(raw) > 64:
@@ -150,7 +157,17 @@ class SetupFlow:
             pass
         bridge.token = token
         bridge.host_url = base
+        matched = ""
+        for host in self.hosts:
+            if str(host.get("baseUrl") or "").rstrip("/") == base:
+                matched = str(host.get("name") or "")
         self._pairing_id = ""
+        self.remember_host(base, matched)
+
+    def remember_host(self, base: str, name: str = "") -> None:
+        self.saved_host = base
+        if name:
+            self.paired_name = name
         self._save()
         return 200, {"ok": True, "step": "paired"}
 
@@ -172,6 +189,11 @@ class SetupFlow:
         self.theme = theme if theme in {"day", "night"} else "night"
         prefs = loaded.get("fanPrefs")
         self.fan_prefs = prefs if isinstance(prefs, dict) else {}
+        self.paired_name = str(loaded.get("pairedName") or "")
+        self.saved_host = str(loaded.get("hostUrl") or "")
+        order = loaded.get("moduleOrder")
+        if isinstance(order, list):
+            self.module_order = [name for name in order if name in self.modules]
         stored = loaded.get("spotifyClientId")
         self.client_id = resolve_client_id(stored)
         if not (isinstance(stored, str) and stored.strip()):
@@ -190,6 +212,10 @@ class SetupFlow:
         loaded["spotifyClientId"] = self.client_id
         loaded["theme"] = self.theme
         loaded["fanPrefs"] = self.fan_prefs
+        loaded["pairedName"] = self.paired_name
+        loaded["moduleOrder"] = self.module_order
+        if self.saved_host:
+            loaded["hostUrl"] = self.saved_host
         loaded["localPort"] = loaded.get("localPort") or 8734
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.config_path.with_suffix(".json.tmp")

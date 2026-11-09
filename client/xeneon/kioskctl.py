@@ -78,9 +78,11 @@ def browser_argv(browser: str, mode: str, port: int, profile: Path) -> list[str]
         f"--app={url}",
     ]
     if os.environ.get("WAYLAND_DISPLAY"):
+        # labwc is Wayland. This does not turn on --kiosk, which ignores the
+        # page Fullscreen API and forced a relaunch to leave the mode.
         argv.insert(1, "--ozone-platform=wayland")
     if mode == "fullscreen":
-        argv.append("--kiosk")
+        argv.append("--start-fullscreen")
     else:
         argv.extend(["--new-window", "--window-size=1280,720"])
     return argv
@@ -446,6 +448,79 @@ def _mark_failed(previous: str | None) -> None:
     })
 
 
+def log_window(message: str, directory: Path | None = None) -> None:
+    """Append one diagnostic line. The Pi can show it with tail on this file."""
+    root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with (root / "window.log").open("a", encoding="utf-8") as handle:
+        handle.write(f"{stamp} {message}\n")
+
+
+def nudge_fullscreen(directory: Path | None = None) -> dict:
+    """Send one F11-style toggle. No URL and no typed command.
+
+    Used only after the page Fullscreen API reports it did not change.
+    wlrctl is preferred on labwc. wtype is the fallback. Neither is required.
+    """
+    import shutil
+
+    attempts = []
+    commands = []
+    if shutil.which("wlrctl"):
+        commands.append(["wlrctl", "keyboard", "type", "F11"])
+    if shutil.which("wtype"):
+        commands.append(["wtype", "-k", "F11"])
+    if not commands:
+        detail = "No wlrctl or wtype on PATH. The page Fullscreen API is the only switch."
+        log_window(detail, directory)
+        return {"ok": False, "detail": detail, "tried": attempts}
+    for command in commands:
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=2, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            attempts.append(command[0] + " failed")
+            log_window(command[0] + " " + str(exc), directory)
+            continue
+        attempts.append(command[0] + ":" + str(completed.returncode))
+        log_window(" ".join(command) + " exit " + str(completed.returncode), directory)
+        if completed.returncode == 0:
+            return {
+                "ok": True,
+                "detail": command[0] + " sent F11. If the window did not change, labwc did not apply it.",
+                "tried": attempts,
+            }
+    detail = "F11 was not accepted (" + ", ".join(attempts) + ")."
+    log_window(detail, directory)
+    return {"ok": False, "detail": detail, "tried": attempts}
+
+
+def display_mode(action: str, needs_fallback: bool, directory: Path | None = None) -> dict:
+    """Record fullscreen or windowed without starting another browser."""
+    if action not in {"fullscreen", "windowed"}:
+        raise ValueError("action")
+    root = directory or runtime_dir()
+    write_mode(ACTIONS[action], root)
+    log_window(f"page requested {action} fallback={needs_fallback}", root)
+    if needs_fallback:
+        nudged = nudge_fullscreen(root)
+        detail = nudged["detail"]
+        ok = bool(nudged["ok"])
+    else:
+        detail = "The page asked the browser to change fullscreen. Chromium was not relaunched."
+        ok = True
+        log_window(detail, root)
+    state = window_state(root)
+    state.update({
+        "ok": ok,
+        "pending": False,
+        "signaled": False,
+        "unchanged": not needs_fallback,
+        "detail": detail,
+    })
+    return state
+
+
 def apply_launched_mode(browser: str, port: int, profile: Path | None = None) -> dict:
     """Reach the requested mode with one dashboard window.
 
@@ -458,6 +533,12 @@ def apply_launched_mode(browser: str, port: int, profile: Path | None = None) ->
     mode = read_mode()
     applied = read_applied_mode()
     mains = owned_main_pids(owned)
+    # Fullscreen and windowed stay on the same process. Relaunching Chromium
+    # on labwc opened another window for every toggle.
+    if mode in {"fullscreen", "windowed"} and mains:
+        if applied not in {"fullscreen", "windowed"}:
+            acknowledge(mode)
+        return {"ok": True, "stable": True, "mode": mode, "pid": max(mains), "detail": "Left the existing window running."}
     if mode == applied and len(mains) == 1:
         return {"ok": True, "stable": True, "mode": mode, "pid": mains[0]}
     if mode == "paused":

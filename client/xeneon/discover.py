@@ -41,6 +41,20 @@ def parse_packet(blob: bytes) -> dict | None:
     }
 
 
+def select_live_host(found: list[dict], accepts, preferred_name: str = "") -> dict | None:
+    """Pick a discovered PC that accepts the stored token. Prefer the saved name.
+
+    A 0.2.0 host has no stable machine id in discovery. The token check is the
+    proof it is the same PC. A refusal does not delete the token.
+    """
+    ordered = sorted(found, key=lambda item: 0 if preferred_name and item.get("name") == preferred_name else 1)
+    for item in ordered:
+        base = str(item.get("baseUrl") or "").rstrip("/")
+        if base.startswith("http://") and accepts(base):
+            return item
+    return None
+
+
 def discover(timeout: float = 0.6, port: int = DEFAULT_PORT) -> list[dict]:
     """Broadcast one query and collect announcements. Failure returns an empty list."""
     found: list[dict] = []

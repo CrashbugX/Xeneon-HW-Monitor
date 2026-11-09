@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from xeneon.keyboard import toggle as keyboard_toggle
-from xeneon.kioskctl import callback_page, request_action, runtime_dir, window_state
+from xeneon.kioskctl import callback_page, display_mode, request_action, runtime_dir, window_state
 from xeneon.session import Session
 from xeneon.wifi import read_wifi
 
@@ -37,6 +37,7 @@ class Bridge:
         self.setup = setup
         self.spotify = spotify
         self.csrf = secrets.token_urlsafe(24)
+        self._misses = 0
         self._stop = threading.Event()
         handler = _page_factory(self)
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
@@ -83,6 +84,8 @@ class Bridge:
             "spotifyConnected": spotify_connected,
             "spotifyRedirectUri": redirect,
             "theme": self.setup.theme if self.setup is not None else "night",
+            "moduleOrder": self.setup.module_order if self.setup is not None else [],
+            "spotifyAccount": self.spotify.account_name() if self.spotify is not None and self.spotify.logged_in() else "",
             "fans": self.setup.fan_rows(self.session.document()) if self.setup is not None else [],
             "demo": self.session.mode == "demo",
         }
@@ -102,7 +105,11 @@ class Bridge:
             status, reason = self.session.demo_transport(str(body.get("action")))
             return status, {"ok": status == 200, "error": None if status == 200 else reason}
         if path == "/api/window":
-            result = request_action(str(body.get("action") or ""))
+            action = str(body.get("action") or "")
+            if action in {"fullscreen", "windowed"}:
+                result = display_mode(action, bool(body.get("needsFallback")))
+                return (200 if result.get("ok") else 400), result
+            result = request_action(action)
             return (200 if result.get("ok") else 400), result
         if path == "/api/keyboard":
             result = keyboard_toggle(str(body.get("action") or ""), runtime_dir())
@@ -155,18 +162,47 @@ class Bridge:
             except urllib.error.HTTPError as exc:
                 kind = "unauthorized" if exc.code == 401 else "invalid"
                 self.session.note_failure(kind, now)
+                if exc.code == 401:
+                    self._rediscover()
                 continue
             except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
                 self.session.note_failure("unreachable", now)
+                self._misses += 1
+                if self._misses >= 3:
+                    self._misses = 0
+                    self._rediscover()
                 continue
             if not isinstance(payload, dict) or payload.get("ok") is False:
                 self.session.note_failure("invalid", now)
                 continue
+            self._misses = 0
             self.session.note_document(payload, now)
             if self.setup is not None:
                 self.setup.observe_document(payload)
             if self.spotify is not None and self.session.mode != "demo":
                 self.session.set_live_spotify(self.spotify.poll())
+
+    def _rediscover(self) -> None:
+        """Find the paired PC again after its address changes. The token is not replaced."""
+        if not self.token or self.setup is None:
+            return
+        from xeneon.discover import discover, select_live_host
+        found = discover(timeout=0.5)
+        self.setup.hosts = found
+        chosen = select_live_host(found, lambda base: _token_accepts(base, self.token), self.setup.paired_name)
+        if chosen is not None:
+            base = str(chosen.get("baseUrl") or "").rstrip("/")
+            self.host_url = base
+            self.setup.remember_host(base, str(chosen.get("name") or self.setup.paired_name))
+
+
+def _token_accepts(base: str, token: str) -> bool:
+    request = urllib.request.Request(base + "/v1/telemetry", headers={"Authorization": "Bearer " + token})
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return False
 
 
 def _page_factory(bridge: Bridge):
@@ -182,6 +218,7 @@ def _page_factory(bridge: Bridge):
                 if bridge.setup is not None:
                     body["fanBoard"] = bridge.setup.fan_rows(bridge.session.document())
                     body["theme"] = bridge.setup.theme
+                    body["moduleOrder"] = bridge.setup.module_order
                 _json(self, 200, body)
                 return
             if path == "/health":
@@ -197,13 +234,26 @@ def _page_factory(bridge: Bridge):
                 bridge.finish_spotify(self)
                 return
             if path in ("/", "/index.html"):
-                _file(self, STATIC / "index.html", "text/html; charset=utf-8")
+                # The saved theme is on the root element before first paint.
+                # Setting it after the fetch fades every card through the night colors.
+                theme = "night"
+                if bridge.setup is not None and bridge.setup.theme in {"day", "night"}:
+                    theme = bridge.setup.theme
+                document = (STATIC / "index.html").read_text(encoding="utf-8")
+                document = document.replace("<html lang=\"en\">", f"<html lang=\"en\" data-theme=\"{theme}\">", 1)
+                _raw_html(self, 200, document)
                 return
             if path == "/app.css":
                 _file(self, STATIC / "app.css", "text/css; charset=utf-8")
                 return
             if path == "/app.js":
                 _file(self, STATIC / "app.js", "text/javascript; charset=utf-8")
+                return
+            if path == "/demo-art.png":
+                _file(self, STATIC / "demo-art.png", "image/png")
+                return
+            if path == "/art":
+                _art(self, bridge)
                 return
             _json(self, 404, {"ok": False, "error": "not_found"})
 
@@ -282,6 +332,30 @@ def _html(handler: BaseHTTPRequestHandler, status: int, message: str) -> None:
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def _art(handler: BaseHTTPRequestHandler, bridge: Bridge) -> None:
+    """Same-origin album art so the page can sample a tint. Only Spotify image hosts."""
+    from xeneon.spotify import ART_PREFIXES
+    query = urllib.parse.urlparse(handler.path).query
+    target = urllib.parse.parse_qs(query).get("u", [""])[0]
+    if not any(target.startswith(prefix) for prefix in ART_PREFIXES):
+        _json(handler, 400, {"ok": False, "error": "art"})
+        return
+    try:
+        with urllib.request.urlopen(target, timeout=2) as response:
+            data = response.read(1_500_000)
+            kind = response.headers.get("Content-Type") or "image/jpeg"
+    except (OSError, urllib.error.URLError, TimeoutError):
+        _json(handler, 502, {"ok": False, "error": "art"})
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Type", kind.split(";")[0])
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+    _ = bridge
 
 
 def _file(handler: BaseHTTPRequestHandler, path: Path, content_type: str) -> None:

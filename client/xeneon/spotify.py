@@ -68,6 +68,29 @@ class SpotifySession:
     def logged_in(self) -> bool:
         return bool(self.state.get("refresh_token") or self.state.get("access_token"))
 
+    def account_name(self) -> str:
+        """Spotify display name when the token can read it. Empty if the profile call is refused."""
+        cached = self.state.get("display_name")
+        if isinstance(cached, str) and cached:
+            return cached
+        token = self.state.get("access_token")
+        if not token:
+            return ""
+        status, body, _headers = self.transport.request(
+            "GET",
+            "https://api.spotify.com/v1/me",
+            None,
+            {"Authorization": "Bearer " + token},
+        )
+        if status != 200 or not isinstance(body, dict):
+            return ""
+        name = str(body.get("display_name") or body.get("id") or "")
+        if name:
+            self.state["display_name"] = name
+            self.token_path.parent.mkdir(parents=True, exist_ok=True)
+            self.token_path.write_text(json.dumps(self.state), encoding="utf-8")
+        return name
+
     def begin(self, now: float | None = None) -> str:
         """Return the Spotify consent URL. Raises ValueError when the client id is missing."""
         if self.needs_client_id():
@@ -217,12 +240,15 @@ class SpotifySession:
         self._store_token(body, now)
 
     def _store_token(self, body: dict, now: float) -> None:
+        display_name = self.state.get("display_name", "")
         self.state = {
             "access_token": body.get("access_token", ""),
             "refresh_token": body.get("refresh_token", self.state.get("refresh_token", "")),
             "expires_at": now + int(body.get("expires_in") or 3600),
             "scope": body.get("scope", SCOPES),
         }
+        if display_name:
+            self.state["display_name"] = display_name
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
         self.token_path.write_text(json.dumps(self.state), encoding="utf-8")
         try:

@@ -291,8 +291,12 @@ def _demo_spotify() -> dict:
         "title": "Night Drive",
         "artist": "Example Artist",
         "album": "Synthetic Album",
+        # Local picture so the demo card can show art and a sampled tint without Spotify.
+        "art": "/demo-art.png",
         "position": 98,
         "duration": 234,
+        "shuffle": "on",
+        "repeat": "one",
         "controlsEnabled": True,
     })
     return state
