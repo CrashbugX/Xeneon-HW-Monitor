@@ -224,14 +224,17 @@ public sealed class PairingAndMigrationTests
     [Fact]
     public void FirewallCommandsFollowTheConfiguredPortsAndStayOnThePrivateSubnet()
     {
-        var commands = PrivateFirewallPlan.Commands(8771, 8764);
+        var commands = PrivateFirewallPlan.Commands(8771, 8764, @"C:\Program Files\Xeneon HW Monitor Host\XeneonHwMonitor.exe");
         var text = string.Join("\n", commands);
         Assert.Contains("protocol=TCP", text, StringComparison.Ordinal);
         Assert.Contains("localport=8771", text, StringComparison.Ordinal);
         Assert.Contains("protocol=UDP", text, StringComparison.Ordinal);
         Assert.Contains("localport=8764", text, StringComparison.Ordinal);
-        Assert.Contains("profile=private", text, StringComparison.Ordinal);
+        Assert.Contains("profile=private,domain", text, StringComparison.Ordinal);
         Assert.Contains("remoteip=localsubnet", text, StringComparison.Ordinal);
+        Assert.Contains("Xeneon HW Monitor - TCP 8771", text, StringComparison.Ordinal);
+        Assert.Contains("Xeneon HW Monitor - UDP 8764", text, StringComparison.Ordinal);
+        Assert.Contains("program=\"C:\\Program Files\\Xeneon HW Monitor Host\\XeneonHwMonitor.exe\"", text, StringComparison.Ordinal);
         Assert.DoesNotContain("profile=public", text, StringComparison.Ordinal);
         Assert.DoesNotContain("localport=8765", text, StringComparison.Ordinal);
         Assert.Contains("delete rule name=\"Xeneon HW Monitor Host\"", text, StringComparison.Ordinal);
