@@ -28,15 +28,19 @@ else
 fi
 LABWC=${XDG_CONFIG_HOME:-$HOME/.config}/labwc
 mkdir -p "$LABWC"
-# One labwc line. Drop older kiosk.sh lines so login does not start two browsers.
-tmp_auto=$(mktemp)
-if [ -f "$LABWC/autostart" ]; then
-  grep -v 'scripts/kiosk.sh' "$LABWC/autostart" > "$tmp_auto" || true
-else
-  : > "$tmp_auto"
-fi
-printf '%s\n' "sh \"$ROOT/scripts/kiosk.sh\" supervise >>/tmp/xeneon-kiosk.log 2>&1 &" >> "$tmp_auto"
-mv "$tmp_auto" "$LABWC/autostart"
+# Exactly one supervise line. A second autostart entry was starting a second Chromium.
+LINE="sh \"$ROOT/scripts/kiosk.sh\" supervise >>/tmp/xeneon-kiosk.log 2>&1 &"
+PYTHONPATH="$ROOT" python3 - "$LABWC/autostart" "$LINE" <<'PY'
+import sys
+from pathlib import Path
+from xeneon.kioskctl import dedupe_autostart
+path, line = Path(sys.argv[1]), sys.argv[2]
+text = path.read_text(encoding="utf-8") if path.is_file() else ""
+path.write_text(dedupe_autostart(text, line), encoding="utf-8")
+PY
+# The bridge is one user service. A kiosk unit would be a second supervisor.
+rm -f "$UNIT_DIR/xeneon-kiosk.service"
+rm -f "$AUTOSTART"/xeneon-kiosk.desktop "$AUTOSTART"/xeneon-dashboard.desktop
 cat > "$UNIT_DIR/xeneon-bridge.service" <<EOF
 [Unit]
 Description=Xeneon localhost dashboard bridge
@@ -72,5 +76,16 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
   sh "$ROOT/scripts/kiosk.sh" supervise >>/tmp/xeneon-kiosk.log 2>&1 &
+fi
+# The power-off helper needs root once. Later shutdowns use sudo -n and do not ask.
+# This does not run the helper. A check that executed it would power the Pi off.
+if [ -x /usr/local/sbin/xeneon-poweroff ] && sudo -n -l /usr/local/sbin/xeneon-poweroff >/dev/null 2>&1; then
+  echo "Pi power-off helper is already installed."
+else
+  echo "One sudo password installs the power-off helper. It is not asked again:"
+  echo "  sudo sh \"$ROOT/scripts/install-poweroff-sudo.sh\" \"$USER\""
+  if sudo -n true >/dev/null 2>&1; then
+    sudo -n sh "$ROOT/scripts/install-poweroff-sudo.sh" "$USER" || true
+  fi
 fi
 echo "Installed for $USER. The bridge stays on http://127.0.0.1:8734/ . Close dashboard pauses the window until you open Xeneon HW Monitor from the menu, or until the next login."

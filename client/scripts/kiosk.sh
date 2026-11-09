@@ -1,7 +1,8 @@
 #!/bin/sh
-# Supervises one dashboard browser. Chromium --kiosk ignores the page's
-# fullscreen API, so Exit fullscreen and Close dashboard ask this process
-# to relaunch or to stay paused. Pause lasts for this login only.
+# Supervises one dashboard browser. Close writes paused before Chromium is
+# killed, and this loop will not start another window while that flag is set.
+# A second copy of this script finds kiosk.lock held, focuses the existing
+# window, and exits. It does not change the display mode.
 # The bridge and the token files are not stopped or deleted.
 # Invoke with sh. A browser upload does not keep the executable bit.
 set -eu
@@ -39,14 +40,18 @@ fi
 
 RUNTIME=$(python3 -c 'from xeneon.kioskctl import runtime_dir; print(runtime_dir())')
 mkdir -p "$RUNTIME"
-exec 9>"$RUNTIME/supervisor.lock"
+exec 9>"$RUNTIME/kiosk.lock"
 if ! flock -n 9; then
-  echo "Xeneon kiosk supervisor is already running."
+  echo "Xeneon kiosk is already running. Focusing that window."
+  python3 -m xeneon.kioskctl focus || true
   exit 0
 fi
 printf '%s\n' "$$" > "$RUNTIME/supervisor.pid"
+python3 -m xeneon.kioskctl log-window "supervisor $$ took kiosk.lock" || true
+# A new login has no runtime mode file. Fullscreen again, even if the
+# previous login had closed the dashboard. A restart in this login keeps pause.
 if [ ! -f "$RUNTIME/mode" ]; then
-  printf '%s\n' "fullscreen" > "$RUNTIME/mode"
+  python3 -m xeneon.kioskctl set-mode fullscreen
 fi
 
 kick=0
@@ -155,13 +160,17 @@ while true; do
   fi
   # Launch only when the dashboard window is missing. A fullscreen toggle
   # must not pass through apply, or Chromium opens another window.
+  # Read the pause flag again immediately before any launch.
   mode=$(python3 -m xeneon.kioskctl read-mode || true)
   pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
   if [ "$mode" = "paused" ]; then
+    python3 -m xeneon.kioskctl log-window "paused; not launching (owned pid ${pid:-none})" || true
     if [ -n "$pid" ]; then
       python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
     fi
+    pid=
   elif [ -z "$pid" ]; then
+    python3 -m xeneon.kioskctl log-output >/dev/null || true
     python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
     pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
   fi
