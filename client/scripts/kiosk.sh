@@ -164,19 +164,37 @@ while true; do
   mode=$(python3 -m xeneon.kioskctl read-mode || true)
   pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
   if [ "$mode" = "paused" ]; then
-    python3 -m xeneon.kioskctl log-window "paused; not launching (owned pid ${pid:-none})" || true
-    if [ -n "$pid" ]; then
-      python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
-    fi
-    pid=
+    # Always look up the profile. An empty pid used to skip the kill, so the
+    # window stayed up and the page said Close did not finish.
+    python3 -m xeneon.kioskctl log-window "paused; closing the profile window (listed pid ${pid:-none})" || true
+    python3 -m xeneon.kioskctl stop-owned || true
+    python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+    while [ "$kick" -eq 0 ]; do
+      now=$(python3 -m xeneon.kioskctl read-mode || true)
+      if [ "$now" != "paused" ]; then
+        break
+      fi
+      left=$(python3 -m xeneon.kioskctl profile-pids || true)
+      if [ -n "$left" ]; then
+        python3 -m xeneon.kioskctl stop-owned || true
+        python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
+      fi
+      sleep 1 &
+      wait $! || true
+    done
+    continue
   elif [ -z "$pid" ]; then
+    SIZE=$(python3 -m xeneon.kioskctl output-size || true)
+    if [ -n "$SIZE" ]; then
+      export XENEON_OUTPUT_SIZE="$SIZE"
+    fi
     python3 -m xeneon.kioskctl log-output >/dev/null || true
     python3 -m xeneon.kioskctl apply "$browser" "$PORT" >/dev/null || true
     pid=$(python3 -m xeneon.kioskctl main-pids | awk '{print $1}')
   fi
   while [ "$kick" -eq 0 ]; do
     now=$(python3 -m xeneon.kioskctl read-mode || true)
-    if [ "$now" = "paused" ] && [ -n "$pid" ]; then
+    if [ "$now" = "paused" ]; then
       break
     fi
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then

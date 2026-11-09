@@ -88,4 +88,7 @@ else
     sudo -n sh "$ROOT/scripts/install-poweroff-sudo.sh" "$USER" || true
   fi
 fi
+PROJECT=$(CDPATH= cd -- "$ROOT/.." && pwd)
+echo "Project folder: $PROJECT"
+echo "Update later with: $PROJECT/update"
 echo "Installed for $USER. The bridge stays on http://127.0.0.1:8734/ . Close dashboard pauses the window until you open Xeneon HW Monitor from the menu, or until the next login."
