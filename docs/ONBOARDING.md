@@ -30,11 +30,13 @@ sh client/scripts/install.sh
 
 Run that as the desktop user, not root. It keeps an existing `client.json`, the host token, and the Spotify token. It does not use a fixed home-folder path. It restarts only a process whose command is `python -m xeneon` (not `python -m xeneon.kioskctl` and not another program). On labwc it leaves one `sh .../kiosk.sh supervise` line in `~/.config/labwc/autostart` and removes the old XDG autostart desktop file. The application menu item **Xeneon HW Monitor** runs `sh client/scripts/kiosk.sh resume`. That menu item is not a second autostart. This was not executed on a Pi.
 
-From the checkout you already have, update with the script in that checkout. The script already on the Pi downloads the current tree. The new install script stops the old kiosk loop by its real script path and starts the managed one. You do not look up a process id.
+From the project folder (the one that contains `client/` and `update`), run:
 
 ```sh
-sh client/scripts/update-from-github.sh
+./update
 ```
+
+That downloads the current tree into that same folder and prints the folder path. `sh client/scripts/update-from-github.sh` does the same thing. The install script stops the old kiosk loop by its real script path and starts the managed one. You do not look up a process id.
 
 If that shell is not already in the checkout, the labwc autostart line contains the path:
 
@@ -44,7 +46,7 @@ grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
 
 Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
 
-The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Close sets paused before Chromium is stopped, and the supervisor does not start another window while that flag is set. A second `kiosk.sh` finds `kiosk.lock` held and focuses the existing window. Fullscreen uses the browser’s own fullscreen control from that click. Chromium is not opened again. The window is started at 2560×720. A saved Chromium window size is cleared first. `wlr-randr` output is written to the window log and the mode is not changed. Optional: `sudo apt install wlr-randr`. The page logs its inner width, inner height, and device pixel ratio on the same log. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the window does not change, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. Close dashboard still pauses the owned window. The bridge, pairing, and Spotify login stay.
+The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Close sets paused before Chromium is stopped. The supervisor finds that Chromium by its dedicated profile, including when the stored pid is already gone, and it does not start another window while paused. A second `kiosk.sh` finds `kiosk.lock` held and focuses the existing window. The gear label follows the real window: boot fullscreen says Exit fullscreen, and the first click leaves it. Chromium is not opened again for that click. The window uses the output size `wlr-randr` reports, or no forced size when that tool is absent. It is not pinned to 2560×720. A saved Chromium window size is cleared first. `wlr-randr` output is written to the window log and the mode is not changed. Optional: `sudo apt install wlr-randr`. The page logs its inner width, inner height, and device pixel ratio on the same log. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the page Fullscreen API does not match the window, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. The bridge, pairing, and Spotify login stay.
 
 If the PC’s address changes, the Pi repeats discovery on UDP 8764 and tries the stored token. A host that accepts the token is used. Pairing is not repeated. A live connection has no banner. **Disconnected from PC** appears when samples stop. The keyboard button is visible only while Setup is open. Click the dim area around Setup to close it.
 
@@ -58,7 +60,7 @@ Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's de
 2. **Layout.** Turn modules on or off. A hidden module is named in the overflow note. The 2560×720 stage stays the wide layout. Narrow and portrait windows stack the cards and scroll.
 3. **Spotify.** Press **Connect Spotify**. Spotify's own page opens in this browser. Approve it there. You do not type a Client ID, a client secret, or your Spotify password. The built-in public Client ID is `c15bb4b8de984a84a831995690451695`. Advanced can replace it; a blank field returns to that id, and a saved nonempty id is left alone. After consent, **Return to dashboard** goes to `http://127.0.0.1:8734/`. The page also goes there on its own. The address bar is replaced with `/` so the login code is not kept. A failed consent has the same return path and does not print the code.
 
-`sh client/scripts/restart-bridge.sh` restarts that bridge only. It does not close the dashboard window. `sh client/scripts/update-from-github.sh` downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz`, keeps the config directory, and runs the install script from that download. It does not copy files from the Windows PC.
+`sh client/scripts/restart-bridge.sh` restarts that bridge only. It does not close the dashboard window. `./update` downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz` into the project folder that contains `update`, keeps `~/.config/xeneon`, and runs install from that folder. It prints the folder path. It does not copy files from the Windows PC.
 
 Demo mode stays labelled. A live authentication failure does not switch to demo.
 
