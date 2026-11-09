@@ -1,26 +1,31 @@
-// Commands for a narrow Private-profile firewall exception. Nothing here runs netsh.
+// Commands for the host firewall exceptions. Nothing here runs netsh.
 namespace Diego.Telemetry;
 
 /// <summary>
-/// The Pi sends a UDP query to port 8764 and then uses TCP for pairing and
-/// telemetry. Windows Firewall drops inbound packets on a Private network
-/// unless a rule allows them. The reply to a discovery query is sent back to
-/// the Pi's ephemeral port, so the Pi does not need an inbound rule. The host
-/// does: inbound UDP on the discovery port, and inbound TCP on the publish
-/// port. Both are limited to the Private profile and to the local subnet.
-/// Public and Domain profiles are not mentioned. The firewall is not turned off.
-/// Changing the publish port does not edit an existing rule. The repair script
-/// deletes the named rules and adds them again for the ports in host.json.
+/// Inbound TCP is pairing and telemetry. Inbound UDP is discovery.
+/// The rules name the port, point at this program, and apply to Private and Domain.
+/// Public is not opened. The remote address stays on the local subnet.
+/// The firewall itself is not turned off. Reinstall deletes these names and adds them again.
 /// </summary>
 public static class PrivateFirewallPlan
 {
-    public const string TcpRuleName = "Xeneon HW Monitor Host TCP";
-
-    public const string UdpRuleName = "Xeneon HW Monitor Host UDP";
-
     public const string LegacyRuleName = "Xeneon HW Monitor Host";
 
-    public static IReadOnlyList<string> Commands(int publishPort, int discoveryPort)
+    public const string LegacyTcpRuleName = "Xeneon HW Monitor Host TCP";
+
+    public const string LegacyUdpRuleName = "Xeneon HW Monitor Host UDP";
+
+    public static string TcpRuleName(int port)
+    {
+        return "Xeneon HW Monitor - TCP " + port;
+    }
+
+    public static string UdpRuleName(int port)
+    {
+        return "Xeneon HW Monitor - UDP " + port;
+    }
+
+    public static IReadOnlyList<FirewallCommand> Commands(int publishPort, int discoveryPort, string programPath)
     {
         if (!EndpointRules.TryValidatePort(publishPort, out var publishError))
         {
@@ -32,29 +37,50 @@ public static class PrivateFirewallPlan
             throw new ConfigException(discoveryError);
         }
 
+        if (string.IsNullOrWhiteSpace(programPath) || programPath.Contains('"'))
+        {
+            throw new ConfigException("The firewall rule needs the path of XeneonHwMonitor.exe.");
+        }
+
         return
         [
             Delete(LegacyRuleName),
-            Delete(TcpRuleName),
-            Delete(UdpRuleName),
-            Add(TcpRuleName, "TCP", publishPort),
-            Add(UdpRuleName, "UDP", discoveryPort)
+            Delete(LegacyTcpRuleName),
+            Delete(LegacyUdpRuleName),
+            Delete(TcpRuleName(publishPort)),
+            Delete(UdpRuleName(discoveryPort)),
+            Add(TcpRuleName(publishPort), "TCP", publishPort, programPath),
+            Add(UdpRuleName(discoveryPort), "UDP", discoveryPort, programPath)
         ];
     }
 
-    public static string RepairCommand(string scriptPath)
+    /// <summary>True when netsh show rule printed a matching rule name. A missing rule is not an error.</summary>
+    public static bool RuleListed(string netshOutput, string ruleName)
     {
-        return "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + scriptPath + "\"";
+        return netshOutput.Contains("Rule Name:", StringComparison.OrdinalIgnoreCase)
+            && netshOutput.Contains(ruleName, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string Delete(string name)
+    private static FirewallCommand Delete(string name)
     {
-        return "netsh advfirewall firewall delete rule name=\"" + name + "\"";
+        return new FirewallCommand("advfirewall firewall delete rule name=\"" + name + "\"");
     }
 
-    private static string Add(string name, string protocol, int port)
+    private static FirewallCommand Add(string name, string protocol, int port, string programPath)
     {
-        return "netsh advfirewall firewall add rule name=\"" + name + "\" dir=in action=allow protocol=" + protocol
-            + " localport=" + port + " profile=private remoteip=localsubnet";
+        return new FirewallCommand(
+            "advfirewall firewall add rule name=\"" + name + "\" dir=in action=allow protocol=" + protocol
+            + " localport=" + port + " profile=private,domain remoteip=localsubnet program=\"" + programPath + "\"");
+    }
+}
+
+/// <summary>One netsh invocation. FileName is netsh. Arguments are not passed through a shell.</summary>
+public readonly record struct FirewallCommand(string Arguments)
+{
+    public string FileName => "netsh";
+
+    public override string ToString()
+    {
+        return FileName + " " + Arguments;
     }
 }

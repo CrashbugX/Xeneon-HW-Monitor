@@ -5,5 +5,5 @@ public static class ProductInfo
 {
     public const string Name = "Xeneon HW Monitor Host";
 
-    public const string Version = "0.2.0";
+    public const string Version = "0.3.0";
 }

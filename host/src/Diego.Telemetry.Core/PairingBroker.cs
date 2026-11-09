@@ -163,7 +163,10 @@ public sealed class PairingBroker
                 Name = pending.Name,
                 TokenHash = Hash(token),
                 PairedAtUtc = _clock.UtcNow,
-                LastSeenUtc = _clock.UtcNow
+                LastSeenUtc = _clock.UtcNow,
+                // The TCP peer is the Pi. The shutdown token arrives later, if the Pi sends one.
+                ControlHost = NormalizePeer(remoteKey),
+                ControlPort = 8766
             };
             _devices.Add(record);
             _pending.Remove(pending);
@@ -192,6 +195,110 @@ public sealed class PairingBroker
         }
     }
 
+    /// <summary>
+    /// Stores the Pi poweroff token and the TCP peer that sent it.
+    /// A host name inside the JSON is ignored so a paired device cannot aim shutdown at some other machine.
+    /// The telemetry token is still stored only as a hash.
+    /// </summary>
+    public string? RememberControl(string telemetryToken, string remoteAddress, int controlPort, string shutdownToken)
+    {
+        if (!EndpointRules.TryValidatePort(controlPort, out var portError))
+        {
+            return portError;
+        }
+
+        var token = shutdownToken.Trim();
+        if (token.Length is < 32 or > 128 || token.Any(char.IsWhiteSpace))
+        {
+            return "The shutdown token must be 32 to 128 characters with no spaces.";
+        }
+
+        var peer = NormalizePeer(remoteAddress);
+        if (peer.Length == 0)
+        {
+            return "The Pi address could not be read from the connection.";
+        }
+
+        lock (_gate)
+        {
+            var device = FindByToken(telemetryToken);
+            if (device is null)
+            {
+                return "That telemetry token is not paired.";
+            }
+
+            device.ShutdownToken = token;
+            device.ControlPort = controlPort;
+            device.ControlHost = peer;
+            device.LastSeenUtc = _clock.UtcNow;
+            return null;
+        }
+    }
+
+    /// <summary>Paired Pis that have both a shutdown token and the address they registered from.</summary>
+    public IReadOnlyList<PiControlTarget> ShutdownTargets()
+    {
+        lock (_gate)
+        {
+            return _devices
+                .Where(device => !string.IsNullOrWhiteSpace(device.ShutdownToken) && !string.IsNullOrWhiteSpace(device.ControlHost) && device.ControlPort > 0)
+                .Select(device => new PiControlTarget(device.Name, ControlUrl(device.ControlHost, device.ControlPort), device.ShutdownToken))
+                .ToArray();
+        }
+    }
+
+    public static string NormalizePeer(string remote)
+    {
+        if (string.IsNullOrWhiteSpace(remote) || remote.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return "";
+        }
+
+        if (!System.Net.IPAddress.TryParse(remote, out var ip))
+        {
+            return "";
+        }
+
+        if (ip.IsIPv4MappedToIPv6)
+        {
+            ip = ip.MapToIPv4();
+        }
+
+        return ip.ToString();
+    }
+
+    public static string ControlUrl(string host, int port)
+    {
+        var name = host.Contains(':') ? "[" + host + "]" : host;
+        return "http://" + name + ":" + port;
+    }
+
+    private DeviceRecord? FindByToken(string telemetryToken)
+    {
+        if (string.IsNullOrEmpty(telemetryToken))
+        {
+            return null;
+        }
+
+        var hash = Hash(telemetryToken);
+        return _devices.FirstOrDefault(item => FixedEquals(item.TokenHash, hash));
+    }
+
+    private static DeviceRecord CopyRecord(DeviceRecord device)
+    {
+        return new DeviceRecord
+        {
+            Id = device.Id,
+            Name = device.Name,
+            TokenHash = device.TokenHash,
+            PairedAtUtc = device.PairedAtUtc,
+            LastSeenUtc = device.LastSeenUtc,
+            ShutdownToken = device.ShutdownToken,
+            ControlPort = device.ControlPort,
+            ControlHost = device.ControlHost
+        };
+    }
+
     public bool Revoke(string deviceId)
     {
         lock (_gate)
@@ -212,14 +319,7 @@ public sealed class PairingBroker
         DeviceRecord[] copy;
         lock (_gate)
         {
-            copy = _devices.Select(device => new DeviceRecord
-            {
-                Id = device.Id,
-                Name = device.Name,
-                TokenHash = device.TokenHash,
-                PairedAtUtc = device.PairedAtUtc,
-                LastSeenUtc = device.LastSeenUtc
-            }).ToArray();
+            copy = _devices.Select(CopyRecord).ToArray();
         }
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -336,7 +436,18 @@ public sealed class DeviceRecord
     public DateTimeOffset PairedAtUtc { get; set; }
 
     public DateTimeOffset? LastSeenUtc { get; set; }
+
+    /// <summary>Poweroff secret for this Pi. Not the telemetry token.</summary>
+    public string ShutdownToken { get; set; } = "";
+
+    public int ControlPort { get; set; }
+
+    /// <summary>Address observed on the registration connection. Not a value the Pi typed.</summary>
+    public string ControlHost { get; set; } = "";
 }
+
+/// <summary>Where to POST /v1/poweroff. The token is the Pi's shutdown token.</summary>
+public sealed record PiControlTarget(string Name, string BaseUrl, string Token);
 
 public sealed class PairedDevice
 {
