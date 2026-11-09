@@ -13,14 +13,18 @@ Matching the letters kiosk.sh inside a shell command is not enough.
 
 from __future__ import annotations
 
+import fcntl
+import json
 import os
 import signal
+import time
 from pathlib import Path
 
 MODES = {"fullscreen", "windowed", "paused"}
 ACTIONS = {"fullscreen": "fullscreen", "windowed": "windowed", "close": "paused"}
-VERBS = {"stop-old", "resume", "status", "supervise", "start", "handoff", "read-mode"}
+VERBS = {"stop-old", "resume", "status", "supervise", "start", "handoff", "read-mode", "pause"}
 DASHBOARD_PATH = "/"
+TRANSITION_TIMEOUT_SECONDS = 8
 
 
 def runtime_dir() -> Path:
@@ -145,6 +149,18 @@ def is_owned_browser(args: list[str], profile: Path) -> bool:
     return has_profile and local
 
 
+def is_owned_main(args: list[str], profile: Path) -> bool:
+    """The window process, not a renderer or GPU helper.
+
+    Chromium's first process can exit after handing the same profile to an
+    already-running window. That survivor is still an owned main process.
+    A normal Chromium window does not use this profile and is not a match.
+    """
+    if any(part.startswith("--type=") for part in args):
+        return False
+    return is_owned_browser(args, profile)
+
+
 def is_legacy_kiosk_child(args: list[str]) -> bool:
     """Browser started by the old loop: kiosk flag plus the local dashboard URL.
 
@@ -239,6 +255,42 @@ def read_mode(directory: Path | None = None) -> str:
     return text if text in MODES else "fullscreen"
 
 
+def read_applied_mode(directory: Path | None = None) -> str | None:
+    path = (directory or runtime_dir()) / "applied-mode"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text if text in MODES else None
+
+
+def write_applied_mode(mode: str, directory: Path | None = None) -> None:
+    if mode not in MODES:
+        raise ValueError("mode")
+    root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / "applied-mode.tmp"
+    temporary.write_text(mode + "\n", encoding="utf-8")
+    temporary.replace(root / "applied-mode")
+
+
+def read_revision(directory: Path | None = None) -> int:
+    path = (directory or runtime_dir()) / "revision"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 0
+    return int(text) if text.isdigit() else 0
+
+
+def write_revision(value: int, directory: Path | None = None) -> None:
+    root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / "revision.tmp"
+    temporary.write_text(str(value) + "\n", encoding="utf-8")
+    temporary.replace(root / "revision")
+
+
 def write_mode(mode: str, directory: Path | None = None) -> None:
     if mode not in MODES:
         raise ValueError("mode")
@@ -265,6 +317,55 @@ def supervisor_is_ours(pid: int, proc_root: Path | None = None) -> bool:
     if not args:
         return False
     return is_supervisor_launcher(args)
+
+
+def owned_main_pids(profile: Path, proc_root: Path | None = None) -> list[int]:
+    found = []
+    for pid in list_pids(proc_root):
+        args = proc_args(pid, proc_root) or []
+        if is_owned_main(args, profile):
+            found.append(pid)
+    return sorted(found)
+
+
+def retain_one_owned_main(profile: Path, proc_root: Path | None = None, killer=None) -> int | None:
+    """Keep a single owned window. Extra mains are the launch loop, not helpers."""
+    pids = owned_main_pids(profile, proc_root)
+    if not pids:
+        return None
+    keep = pids[0]
+    real = proc_root is None and killer is None
+    kill = killer or (_signal_term if real else None)
+    for pid in pids[1:]:
+        if kill is not None:
+            try:
+                kill(pid)
+            except OSError:
+                pass
+    return keep
+
+
+def stop_owned_mains(profile: Path, proc_root: Path | None = None, killer=None) -> list[int]:
+    """Stop every owned dashboard window. Other Chromium profiles are not signaled."""
+    pids = owned_main_pids(profile, proc_root)
+    if not pids:
+        return []
+    real = proc_root is None and killer is None
+    kill = killer or (_signal_term if real else None)
+    if kill is None:
+        return pids
+    for pid in pids:
+        try:
+            kill(pid)
+        except OSError:
+            pass
+    if real:
+        _wait_gone(pids, Path("/proc"))
+    return pids
+
+
+def _signal_term(pid: int) -> None:
+    _signal(pid, signal.SIGTERM)
 
 
 def _signal(pid: int, sig: int) -> None:
@@ -330,6 +431,11 @@ def handoff(
         recorded_browser = _stop_recorded_browser(runtime, proc_root, kill, owned)
         if recorded_browser is not None and recorded_browser not in stopped:
             stopped.append(recorded_browser)
+        for main_pid in owned_main_pids(owned, proc_root):
+            if main_pid in skipped or main_pid in stopped:
+                continue
+            kill(main_pid)
+            stopped.append(main_pid)
         kill(launcher)
         stopped.append(launcher)
     if proc_root is None and killer is None and supervisors:
@@ -353,59 +459,250 @@ def _wait_gone(pids: list[int], proc_root: Path) -> None:
             pass
 
 
+def read_transition(directory: Path | None = None) -> dict | None:
+    path = (directory or runtime_dir()) / "transition.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_transition(data: dict, directory: Path | None = None) -> None:
+    root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / "transition.json.tmp"
+    temporary.write_text(json.dumps(data), encoding="utf-8")
+    temporary.replace(root / "transition.json")
+
+
+def reconcile_transition(directory: Path | None = None, now: float | None = None) -> dict | None:
+    """Expire one unfinished change without starting another browser.
+
+    The requested mode is put back to the mode the launcher last acknowledged.
+    A later poll does not launch anything by itself.
+    """
+    root = directory or runtime_dir()
+    moment = time.time() if now is None else now
+    data = read_transition(root)
+    if not data or data.get("status") != "pending":
+        return data
+    started = float(data.get("started") or 0)
+    if moment - started < TRANSITION_TIMEOUT_SECONDS:
+        return data
+    applied = read_applied_mode(root)
+    restore = applied if applied in {"fullscreen", "windowed"} else "fullscreen"
+    write_mode(restore, root)
+    failed = {
+        "target": data.get("target"),
+        "revision": data.get("revision") or read_revision(root),
+        "started": started,
+        "status": "failed",
+        "detail": (
+            "The window change did not finish. The dashboard was left in the last mode that actually started."
+        ),
+    }
+    write_transition(failed, root)
+    return failed
+
+
+def acknowledge(mode: str, directory: Path | None = None) -> None:
+    """Record that the owned launcher is really in this mode. Pending ends only here."""
+    if mode not in MODES:
+        raise ValueError("mode")
+    root = directory or runtime_dir()
+    write_applied_mode(mode, root)
+    data = read_transition(root)
+    if not data or data.get("status") != "pending":
+        return
+    if data.get("target") == mode:
+        done = dict(data)
+        done["status"] = "done"
+        done["detail"] = ""
+        write_transition(done, root)
+
+
+def window_state(directory: Path | None = None, proc_root: Path | None = None, now: float | None = None) -> dict:
+    """Label for the one window toggle. This is the launcher mode, not the DOM fullscreen API."""
+    root = directory or runtime_dir()
+    reconcile_transition(root, now)
+    mode = read_mode(root)
+    applied = read_applied_mode(root)
+    revision = read_revision(root)
+    data = read_transition(root)
+    pid = supervisor_pid(root)
+    managed = bool(pid is not None and supervisor_is_ours(pid, proc_root))
+    pending = bool(data and data.get("status") == "pending")
+    detail = ""
+    if data and data.get("status") == "failed":
+        detail = str(data.get("detail") or "")
+    elif pending:
+        detail = "Switching the owned window. The buttons stay off until that finishes."
+    if not managed:
+        return {
+            "ok": True,
+            "managed": False,
+            "enabled": False,
+            "closeEnabled": False,
+            "pending": False,
+            "signaled": False,
+            "mode": mode,
+            "appliedMode": applied,
+            "revision": revision,
+            "action": None,
+            "label": "Fullscreen",
+            "detail": (
+                "This window was not opened by the Xeneon kiosk launcher. "
+                "The fullscreen control and Close dashboard only change the browser that launcher started. "
+                "The bridge keeps running."
+            ),
+        }
+    if pending:
+        label = "Switching…"
+        action = None
+        enabled = False
+        close_enabled = False
+    elif (applied or mode) == "fullscreen":
+        label = "Exit fullscreen"
+        action = "windowed"
+        enabled = True
+        close_enabled = True
+    else:
+        label = "Fullscreen"
+        action = "fullscreen"
+        enabled = True
+        close_enabled = True
+    return {
+        "ok": True,
+        "managed": True,
+        "enabled": enabled,
+        "closeEnabled": close_enabled,
+        "pending": pending,
+        "signaled": False,
+        "mode": mode,
+        "appliedMode": applied,
+        "revision": revision,
+        "action": action,
+        "label": label,
+        "detail": detail,
+    }
+
+
 def request_action(
     action: str,
     directory: Path | None = None,
     proc_root: Path | None = None,
     notifier=None,
+    killer=None,
+    now: float | None = None,
 ) -> dict:
-    """Ask the owned supervisor to change window mode. No URL is accepted."""
+    """Ask the owned supervisor to change window mode. No URL is accepted.
+
+    One transition is signaled once. Further clicks, including from an older
+    tab, are ignored until the launcher acknowledges that mode. A repeated
+    Fullscreen request while already in kiosk used to kill the live window;
+    Chromium then exited the new process after handing the profile to a
+    surviving window, and the supervisor opened another window every couple
+    of seconds.
+    """
+    del killer
     if action not in ACTIONS:
         return {
             "ok": False,
             "managed": False,
-            "applied": False,
+            "signaled": False,
+            "unchanged": False,
+            "enabled": False,
+            "closeEnabled": False,
+            "pending": False,
             "error": "action",
+            "label": "Fullscreen",
+            "action": None,
             "detail": "That window action is not available.",
         }
-    mode = ACTIONS[action]
     root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    moment = time.time() if now is None else now
+    lock_path = root / "transition.lock"
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return _request_locked(action, root, proc_root, notifier, moment)
+
+
+def _request_locked(action: str, root: Path, proc_root: Path | None, notifier, moment: float) -> dict:
+    reconcile_transition(root, moment)
+    state = window_state(root, proc_root, moment)
+    if not state["managed"]:
+        state["signaled"] = False
+        state["unchanged"] = False
+        return state
+    if state["pending"]:
+        state["signaled"] = False
+        state["unchanged"] = True
+        state["detail"] = "A window change is already in progress. The buttons stay off until it finishes."
+        return state
+    target = ACTIONS[action]
+    applied = read_applied_mode(root)
+    stable = applied if applied in MODES else read_mode(root)
+    if target == stable and read_mode(root) == target:
+        state = window_state(root, proc_root, moment)
+        state["signaled"] = False
+        state["unchanged"] = True
+        state["detail"] = _unchanged_detail(target)
+        return state
+    previous = stable if stable in {"fullscreen", "windowed"} else "fullscreen"
+    revision = read_revision(root) + 1
+    write_mode(target, root)
+    write_revision(revision, root)
+    write_transition(
+        {"target": target, "revision": revision, "started": moment, "status": "pending", "detail": ""},
+        root,
+    )
     pid = supervisor_pid(root)
-    if pid is None or not supervisor_is_ours(pid, proc_root):
-        return {
-            "ok": True,
-            "managed": False,
-            "applied": False,
-            "mode": mode,
-            "detail": (
-                "This window was not opened by the Xeneon kiosk launcher. "
-                "Exit fullscreen and Close dashboard only change the browser that launcher started. "
-                "The bridge keeps running."
-            ),
-        }
-    write_mode(mode, root)
-    notify = notifier or (lambda target: _signal(target, signal.SIGUSR1))
+    notify = notifier or (lambda target_pid: _signal(target_pid, signal.SIGUSR1))
     try:
-        notify(pid)
+        if pid is not None:
+            notify(pid)
     except OSError:
-        return {
-            "ok": False,
-            "managed": True,
-            "applied": False,
-            "mode": mode,
-            "detail": "The kiosk launcher did not accept the request. The dashboard window may still be open.",
-        }
+        write_mode(previous, root)
+        write_transition(
+            {
+                "target": target,
+                "revision": revision,
+                "started": moment,
+                "status": "failed",
+                "detail": "The kiosk launcher did not accept the request. The dashboard window may still be open.",
+            },
+            root,
+        )
+        state = window_state(root, proc_root, moment)
+        state["signaled"] = False
+        state["unchanged"] = False
+        state["ok"] = False
+        state["detail"] = "The kiosk launcher did not accept the request. The dashboard window may still be open."
+        return state
+    state = window_state(root, proc_root, moment)
+    state["signaled"] = True
+    state["unchanged"] = False
+    state["revision"] = revision
     if action == "close":
-        detail = (
+        state["detail"] = (
             "Close was sent to the owned dashboard window. "
-            "If it is still visible, it did not close. "
-            "Reopen later from the Xeneon HW Monitor application menu. The bridge keeps running."
+            "The buttons stay off until that window is actually closed."
         )
     elif action == "windowed":
-        detail = "The owned dashboard is leaving kiosk mode and opening as a normal window."
+        state["detail"] = "Switching the owned window out of kiosk. The buttons stay off until that finishes."
     else:
-        detail = "The owned dashboard is returning to fullscreen."
-    return {"ok": True, "managed": True, "applied": True, "mode": mode, "detail": detail}
+        state["detail"] = "Switching the owned window to fullscreen. The buttons stay off until that finishes."
+    return state
+
+
+def _unchanged_detail(target: str) -> str:
+    if target == "fullscreen":
+        return "Already fullscreen. The current window was left as it is."
+    if target == "windowed":
+        return "Already in a normal window. The current window was left as it is."
+    return "Close was already requested. No further dashboard window was opened. The bridge keeps running."
 
 
 def callback_page(success: bool) -> str:
@@ -470,6 +767,29 @@ def main(argv: list[str] | None = None) -> int:
     if command == "read-mode":
         print(read_mode())
         return 0
+    if command == "read-applied":
+        print(read_applied_mode() or "")
+        return 0
+    if command == "ack":
+        if len(args) != 2 or args[1] not in MODES:
+            return 2
+        acknowledge(args[1])
+        return 0
+    if command == "main-pids":
+        print(" ".join(str(pid) for pid in owned_main_pids(profile_dir())))
+        return 0
+    if command == "retain-one":
+        kept = retain_one_owned_main(profile_dir())
+        print("" if kept is None else kept)
+        return 0
+    if command == "stop-owned":
+        stopped = stop_owned_mains(profile_dir())
+        print("stopped", " ".join(str(pid) for pid in stopped))
+        return 0
+    if command == "reconcile":
+        data = reconcile_transition()
+        print("" if not data else data.get("status", ""))
+        return 0
     if command == "exec-browser":
         if len(args) != 4:
             return 2
@@ -487,7 +807,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         result = request_action(args[1])
         print(result.get("detail", ""))
-        return 0 if result.get("applied") else 1
+        return 0 if result.get("signaled") or result.get("unchanged") else 1
     print("usage: stop-old | handoff | set-mode | read-mode | browser-args | request", file=sys.stderr)
     return 2
 

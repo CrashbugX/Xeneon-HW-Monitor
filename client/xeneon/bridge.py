@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from xeneon.kioskctl import callback_page, request_action
+from xeneon.kioskctl import callback_page, request_action, window_state
 from xeneon.session import Session
 from xeneon.wifi import read_wifi
 
@@ -178,6 +178,9 @@ def _page_factory(bridge: Bridge):
                 return
             if path == "/api/setup":
                 _json(self, 200, bridge.setup_view())
+                return
+            if path == "/api/window":
+                _json(self, 200, window_state())
                 return
             if path == "/spotify/callback":
                 bridge.finish_spotify(self)

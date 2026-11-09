@@ -4,5 +4,5 @@ Python 3 standard library only. The page is HTML, CSS, and vanilla JavaScript
 in the static directory. See docs/CODE-TOUR.md from the repository root.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
