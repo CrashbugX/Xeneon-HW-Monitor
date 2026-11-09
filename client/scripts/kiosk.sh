@@ -71,75 +71,133 @@ raise SystemExit(0 if is_owned_browser(args, profile_dir()) else 1)
 PY
 }
 
-stop_owned_browser() {
-  pid=$(cat "$RUNTIME/browser.pid" 2>/dev/null || true)
-  if owned_browser_alive "$pid"; then
-    kill -TERM "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-  fi
-  rm -f "$RUNTIME/browser.pid"
-}
-
-launch_browser() {
-  mode=$1
+# Pick a browser binary. Empty when this session has no graphical display.
+choose_browser() {
   browser=${XENEON_BROWSER:-}
-  if [ -z "$browser" ]; then
-    for candidate in chromium chromium-browser google-chrome firefox; do
-      if command -v "$candidate" >/dev/null 2>&1; then
-        browser=$candidate
-        break
-      fi
-    done
+  if [ -n "$browser" ]; then
+    printf '%s\n' "$browser"
+    return 0
   fi
-  if [ -z "$browser" ]; then
-    echo "No Chromium or Firefox on PATH. Open http://127.0.0.1:$PORT/ yourself. Close and Exit fullscreen need the kiosk launcher." >&2
+  if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
     return 1
   fi
-  # exec-browser replaces this python process, so the waited pid is the browser.
+  for candidate in chromium chromium-browser google-chrome firefox; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Start one owned browser and return when its process image is that browser,
+# or when the starter exits. Do not wait for the window's whole lifetime:
+# Chromium can exit the starter after handing the profile to a window that
+# stays open, and waiting on the starter used to launch another window.
+start_browser() {
+  mode=$1
+  browser=$2
   python3 -m xeneon.kioskctl exec-browser "$browser" "$mode" "$PORT" &
-  echo $! > "$RUNTIME/browser.pid"
-  wait $! || true
+  pid=$!
+  echo "$pid" > "$RUNTIME/browser.pid"
+  i=0
+  while [ "$i" -lt 50 ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    if owned_browser_alive "$pid"; then
+      # A starter that only hands the profile to another window exits
+      # immediately. Wait briefly so that exit is not counted as the window.
+      sleep 0.2
+      return 0
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 0
 }
 
 wait_kick() {
-  kick=0
   while [ "$kick" -eq 0 ]; do
     sleep 1 &
     wait $! || true
   done
-  kick=0
+}
+
+wait_for_pid_or_kick() {
+  pid=$1
+  while [ "$kick" -eq 0 ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    sleep 1 &
+    wait $! || true
+  done
+}
+
+sleep_interruptible() {
+  left=$1
+  while [ "$left" -gt 0 ] && [ "$kick" -eq 0 ]; do
+    sleep 1 &
+    wait $! || true
+    left=$((left - 1))
+  done
 }
 
 ensure_bridge
+penalty=2
 while true; do
+  python3 -m xeneon.kioskctl reconcile >/dev/null || true
   mode=$(python3 -m xeneon.kioskctl read-mode || true)
   if [ -z "$mode" ]; then
     mode=fullscreen
   fi
+  kick=0
   if [ "$mode" = "paused" ]; then
-    stop_owned_browser
+    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
+    if [ -z "$(python3 -m xeneon.kioskctl main-pids)" ]; then
+      python3 -m xeneon.kioskctl ack paused
+    fi
     wait_kick
     continue
   fi
-  if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${XENEON_BROWSER:-}" ]; then
+  browser=$(choose_browser || true)
+  if [ -z "$browser" ]; then
     echo "No graphical display. Bridge URL http://127.0.0.1:$PORT/ . Resume the window from the Xeneon menu when a desktop is open."
     wait_kick
     continue
   fi
-  launch_browser "$mode" || true
-  if [ "$kick" -eq 1 ]; then
-    stop_owned_browser
+  applied=$(python3 -m xeneon.kioskctl read-applied || true)
+  kept=$(python3 -m xeneon.kioskctl retain-one || true)
+  if [ -n "$kept" ] && [ "$applied" = "$mode" ]; then
+    echo "$kept" > "$RUNTIME/browser.pid"
+    wait_for_pid_or_kick "$kept"
+    continue
   fi
   mode=$(python3 -m xeneon.kioskctl read-mode || true)
-  if [ -z "$mode" ]; then
-    mode=fullscreen
-  fi
   if [ "$mode" = "paused" ]; then
     continue
   fi
-  if [ "$kick" -eq 0 ]; then
-    sleep 2 &
-    wait $! || true
+  if [ -n "$kept" ]; then
+    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
   fi
-  kick=0
+  mode=$(python3 -m xeneon.kioskctl read-mode || true)
+  if [ -z "$mode" ] || [ "$mode" = "paused" ]; then
+    continue
+  fi
+  start_browser "$mode" "$browser" || true
+  now=$(python3 -m xeneon.kioskctl read-mode || true)
+  if [ "$now" != "$mode" ]; then
+    python3 -m xeneon.kioskctl stop-owned >/dev/null || true
+    continue
+  fi
+  if [ -n "$(python3 -m xeneon.kioskctl main-pids)" ]; then
+    python3 -m xeneon.kioskctl ack "$mode"
+    penalty=2
+    continue
+  fi
+  sleep_interruptible "$penalty"
+  if [ "$penalty" -lt 8 ]; then
+    penalty=$((penalty * 2))
+  fi
 done
