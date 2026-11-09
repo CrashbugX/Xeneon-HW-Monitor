@@ -75,10 +75,91 @@ public sealed class HostSession : IDisposable
 
     public string FirewallNote()
     {
-        return "Firewall is unchanged by this window. Inbound TCP " + Config.PublishPort
-            + " carries pairing and telemetry. Inbound UDP " + Config.DiscoveryPort
-            + " receives discovery queries. Both are needed only on the Private profile, local subnet. Public stays closed. A manual address on the Pi uses TCP and still works if UDP is blocked. Run Repair-PrivateFirewall.ps1 yourself, elevated, after a port change. Poll interval is in seconds, from 0.5 to 3600.";
+        return "Inbound TCP " + Config.PublishPort + " is pairing and telemetry. Inbound UDP " + Config.DiscoveryPort
+            + " is discovery. The rules are Private and Domain, this program, local subnet. Public stays closed. "
+            + "Fix firewall replaces them. It does not turn the firewall off.";
     }
+
+    public string SetStartWithWindows(bool enabled)
+    {
+        Config.StartWithWindows = enabled;
+        SaveConfig();
+        var marker = Path.Combine(_directory, "start-with-windows.off");
+        if (enabled)
+        {
+            if (File.Exists(marker))
+            {
+                File.Delete(marker);
+            }
+
+            return "Start with Windows is on.";
+        }
+
+        File.WriteAllText(marker, "off\n");
+        return "Start with Windows is off. The logon task is removed on Windows.";
+    }
+
+    public string SetPowerOffPi(bool enabled)
+    {
+        Config.PowerOffPiOnShutdown = enabled;
+        SaveConfig();
+        return enabled
+            ? "When Windows shuts down or restarts, the paired Pi is asked to power off. Exit does not do that."
+            : "Pi power-off is off. Windows shutdown will leave the Pi running.";
+    }
+
+    public void MarkTrayHintShown()
+    {
+        if (Config.TrayHintShown)
+        {
+            return;
+        }
+
+        Config.TrayHintShown = true;
+        SaveConfig();
+    }
+
+    public bool ExitRequested { get; private set; }
+
+    public void MarkExit()
+    {
+        ExitRequested = true;
+    }
+
+    /// <summary>
+    /// One coordinated shutdown. A second call does nothing.
+    /// Exit and a disabled setting return without contacting the Pi.
+    /// </summary>
+    public ShutdownResult BeginCoordinatedShutdown()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _shutdownStarted, 1) == 1)
+        {
+            return new ShutdownResult(ShutdownOutcome.Aborted, TimeSpan.Zero, 0, 0, "already started");
+        }
+
+        if (!PiShutdownGate.ShouldRun(Config.PowerOffPiOnShutdown, ExitRequested, windowsShutdown: true))
+        {
+            return new ShutdownResult(ShutdownOutcome.NotConfigured, TimeSpan.Zero, 0, 0, ExitRequested ? "exit" : "turned off");
+        }
+
+        var targets = _pairing.ShutdownTargets();
+        if (targets.Count == 0)
+        {
+            return new ShutdownResult(ShutdownOutcome.NotConfigured, TimeSpan.Zero, 0, 0, "no paired Pi has registered a control address");
+        }
+
+        ShutdownResult last = new(ShutdownOutcome.NotConfigured, TimeSpan.Zero, 0, 0, "none");
+        foreach (var target in targets)
+        {
+            using var channel = new HttpPiShutdownChannel(target.BaseUrl, target.Token, TimeSpan.FromSeconds(ShutdownLimits.DefaultRequestTimeoutSeconds));
+            var coordinator = new ShutdownCoordinator(new ShutdownPolicy(), channel, new SystemShutdownClock(), piConfigured: true);
+            last = Task.Run(() => coordinator.RunAsync(_ => { }, CancellationToken.None)).GetAwaiter().GetResult();
+        }
+
+        return last;
+    }
+
+    private int _shutdownStarted;
 
     public IReadOnlyList<PairedDevice> Paired => _pairing.Devices;
 
@@ -135,7 +216,7 @@ public sealed class HostSession : IDisposable
         }
 
         return "Listening on TCP " + Config.PublishPort + ". Discovery is still UDP " + Config.DiscoveryPort
-            + ". The firewall was not changed. If the Pi cannot connect, run Repair-PrivateFirewall.ps1 from an elevated PowerShell. This window does not open that prompt.";
+            + ". Click Fix firewall so the Private and Domain rules name this port.";
     }
 
     public string ApproveFirstPending()
@@ -178,6 +259,7 @@ public sealed class HostSession : IDisposable
     {
         _source = OpenSource();
         _server = TelemetryServer.Start("0.0.0.0", Config.PublishPort, "", allowLan: true, _source, Config, new SystemClock(), _pairing);
+        _server.DevicesChanged = () => _pairing.Save(Path.Combine(_directory, "devices.json"));
         if (Config.DiscoveryEnabled)
         {
             _beacon = new DiscoveryBeacon(Config.DiscoveryPort, () => new DiscoveryAnnouncement

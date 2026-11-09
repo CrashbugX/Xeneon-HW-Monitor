@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>XeneonHwMonitor</AssemblyName>
     <RootNamespace>Diego.Telemetry.Desktop</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Product>Xeneon HW Monitor Host</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
@@ -21,6 +21,7 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.4" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.4" />
     <PackageReference Include="Avalonia.Headless" Version="11.3.4" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.9" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Diego.Telemetry.Host\Diego.Telemetry.Host.csproj" />

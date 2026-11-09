@@ -11,6 +11,8 @@
         <TrayIcon.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Open" Click="OpenFromTray"/>
+            <NativeMenuItem Header="Start with Windows" ToggleType="CheckBox" IsChecked="True" Click="ToggleAutostartFromTray"/>
+            <NativeMenuItem Header="Check for updates" Click="CheckFromTray"/>
             <NativeMenuItem Header="Exit" Click="ExitFromTray"/>
           </NativeMenu>
         </TrayIcon.Menu>

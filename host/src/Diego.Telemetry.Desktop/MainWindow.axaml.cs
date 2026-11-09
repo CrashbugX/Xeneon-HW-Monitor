@@ -33,7 +33,13 @@ public partial class MainWindow : Window
         PortBox.Text = "8765";
         UrlText.Text = "Telemetry  http://this-pc:8765/v1/telemetry\nInventory  http://this-pc:8765/v1/inventory\nDiscover   http://this-pc:8765/v1/discover";
         PendingText.Text = "telemetry-pi is waiting. Code 482913. It expires in two minutes. Nothing is paired until you approve.";
-        FirewallText.Text = "Firewall is unchanged. Inbound TCP 8765 is telemetry. Inbound UDP 8764 is discovery. Private profile, local subnet. Run Repair-PrivateFirewall.ps1 yourself if you change the port.";
+        FirewallText.Text = "The firewall rules for TCP 8765 and UDP 8764 are missing. Public stays closed.";
+        FixFirewallButton.IsVisible = true;
+        AutostartBox.IsChecked = true;
+        PiShutdownBox.IsChecked = true;
+        UpdateText.Text = "0.3.0 is installed. 0.3.1 is available.";
+        UpdateNotes.Text = "Example notes. Update now downloads the installer, checks its SHA-256, and upgrades in place. It does not run until you click it.";
+        UpdateButton.IsEnabled = true;
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add(new ComboBoxItem { Content = "telemetry-pi · last seen 2026-11-08 22:00:00Z", Tag = "device-telemetry-pi" });
         DeviceBox.SelectedIndex = 0;
@@ -52,6 +58,16 @@ public partial class MainWindow : Window
         PortBox.Text = _session.Config.PublishPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
         UrlText.Text = _session.Urls;
         FirewallText.Text = _session.FirewallNote();
+        var rules = WindowsHostOps.RulesPresent(_session.Config.PublishPort, _session.Config.DiscoveryPort);
+        if (!rules && OperatingSystem.IsWindows())
+        {
+            FirewallText.Text = "The firewall rules for TCP " + _session.Config.PublishPort
+                + " and UDP " + _session.Config.DiscoveryPort + " are missing. " + _session.FirewallNote();
+        }
+
+        FixFirewallButton.IsVisible = !rules || !OperatingSystem.IsWindows();
+        AutostartBox.IsChecked = _session.Config.StartWithWindows || WindowsHostOps.LogonTaskExists();
+        PiShutdownBox.IsChecked = _session.Config.PowerOffPiOnShutdown;
         PendingText.Text = _session.PendingText();
         var selected = (DeviceBox.SelectedItem as ComboBoxItem)?.Tag as string;
         DeviceBox.Items.Clear();
@@ -77,20 +93,87 @@ public partial class MainWindow : Window
         }
     }
 
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        if (OperatingSystem.IsWindows())
+        {
+            ListenForWindowsShutdown();
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void ListenForWindowsShutdown()
+    {
+        Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void OnSessionEnding(object? sender, Microsoft.Win32.SessionEndingEventArgs e)
+    {
+        // Restart uses the same reason as shutdown. Logoff does not power off the Pi.
+        if (e.Reason != Microsoft.Win32.SessionEndReasons.SystemShutdown)
+        {
+            return;
+        }
+
+        _session?.BeginCoordinatedShutdown();
+    }
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
+        if (e.CloseReason == WindowCloseReason.OSShutdown)
+        {
+            _session?.BeginCoordinatedShutdown();
+            base.OnClosing(e);
+            return;
+        }
+
         if (HostSettings.CancelClose(_exit))
         {
             e.Cancel = true;
             Hide();
+            ShowTrayHint();
         }
 
         base.OnClosing(e);
     }
 
+    private void ShowTrayHint()
+    {
+        if (_session is null || _session.Config.TrayHintShown)
+        {
+            return;
+        }
+
+        _session.MarkTrayHintShown();
+        var hint = new Window
+        {
+            Title = "Xeneon HW Monitor",
+            Width = 440,
+            Height = 140,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Topmost = true,
+            Content = new TextBlock
+            {
+                Margin = new Avalonia.Thickness(20),
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                Text = "Xeneon HW Monitor is still running in the tray. Open it from the icon. Exit is in that menu."
+            }
+        };
+        hint.Show();
+    }
+
+    public void ApplyAutostart(bool enabled)
+    {
+        CopyStatus.Text = (_session?.SetStartWithWindows(enabled) ?? "") + " " + (enabled ? WindowsHostOps.InstallLogonTask() : WindowsHostOps.RemoveLogonTask());
+        Refresh();
+    }
+
     public void ExitApplication()
     {
         _exit = true;
+        _session?.MarkExit();
         _session?.Stop();
         if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -162,8 +245,83 @@ public partial class MainWindow : Window
         Refresh();
     }
 
-    private void ExitClick(object? sender, RoutedEventArgs e)
+    private void ToggleAutostart(object? sender, RoutedEventArgs e)
     {
+        ApplyAutostart(AutostartBox.IsChecked == true);
+    }
+
+    private void TogglePiShutdown(object? sender, RoutedEventArgs e)
+    {
+        CopyStatus.Text = _session?.SetPowerOffPi(PiShutdownBox.IsChecked == true) ?? "No host session.";
+    }
+
+    private void FixFirewall(object? sender, RoutedEventArgs e)
+    {
+        if (_session is null)
+        {
+            CopyStatus.Text = "No host session.";
+            return;
+        }
+
+        CopyStatus.Text = WindowsHostOps.ApplyFirewall(_session.Config.PublishPort, _session.Config.DiscoveryPort);
+        Refresh();
+    }
+
+    private UpdateOffer? _offer;
+
+    public async void CheckUpdates(object? sender, RoutedEventArgs e)
+    {
+        UpdateText.Text = "Checking GitHub releases…";
+        UpdateButton.IsEnabled = false;
+        try
+        {
+            _offer = await WindowsHostOps.CheckAsync();
+        }
+        catch (Exception)
+        {
+            UpdateText.Text = HostUpdate.OfflineMessage;
+            if (Avalonia.Application.Current is App app)
+            {
+                app.SetUpdateMenu(null);
+            }
+
+            return;
+        }
+
+        if (_offer is null)
+        {
+            UpdateText.Text = HostUpdate.CurrentMessage(ProductInfo.Version);
+            UpdateNotes.Text = "";
+            return;
+        }
+
+        UpdateText.Text = ProductInfo.Version + " is installed. " + _offer.Version + " is available.";
+        UpdateNotes.Text = _offer.Notes;
+        UpdateButton.IsEnabled = _offer.HasChecksum;
+        if (Avalonia.Application.Current is App current)
+        {
+            current.SetUpdateMenu(_offer.Version);
+        }
+    }
+
+    private async void UpdateNow(object? sender, RoutedEventArgs e)
+    {
+        if (_offer is null)
+        {
+            return;
+        }
+
+        UpdateButton.IsEnabled = false;
+        CopyStatus.Text = "Downloading " + _offer.AssetName + "…";
+        var problem = await WindowsHostOps.DownloadAndLaunchAsync(_offer);
+        if (problem.Length > 0)
+        {
+            CopyStatus.Text = problem;
+            UpdateButton.IsEnabled = true;
+            return;
+        }
+
+        CopyStatus.Text = "The installer is starting. This window will close so the files can be replaced.";
         ExitApplication();
     }
 }

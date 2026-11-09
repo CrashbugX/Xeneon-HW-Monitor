@@ -13,6 +13,26 @@ public static class Program
             return 0;
         }
 
+        if (args.Any(argument => argument == "--install-logon-task"))
+        {
+            Console.WriteLine(WindowsHostOps.InstallLogonTask());
+            return 0;
+        }
+
+        if (args.Any(argument => argument == "--remove-logon-task"))
+        {
+            Console.WriteLine(WindowsHostOps.RemoveLogonTask());
+            return 0;
+        }
+
+        if (WindowsElevation.ShouldRefuseStart(OperatingSystem.IsWindows(), WindowsHostOps.IsElevated()))
+        {
+            App.DeniedMessage = WindowsElevation.DeniedMessage;
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            return 1;
+        }
+
+        App.StartHidden = args.Any(argument => argument == "--autostart");
         var directory = args.FirstOrDefault(argument => argument.StartsWith("--data=", StringComparison.Ordinal)) is string data
             ? data["--data=".Length..]
             : DefaultDataDirectory();

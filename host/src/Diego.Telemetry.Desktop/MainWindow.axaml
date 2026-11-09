@@ -2,14 +2,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Diego.Telemetry.Desktop.MainWindow"
         Title="Xeneon HW Monitor"
-        Width="760" Height="1080"
+        Width="760" Height="1280"
         Background="#12141a"
         Foreground="#e8eaef"
         WindowStartupLocation="CenterScreen">
   <ScrollViewer>
     <StackPanel Margin="28" Spacing="14">
       <TextBlock Text="Xeneon HW Monitor" FontSize="28" FontWeight="SemiBold"/>
-      <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="Close hides this window. Exit stops the app. If the shell shows a tray icon, Open brings the window back. Install does not add a Windows logon shortcut."/>
+      <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="Closing this window hides it. The host keeps publishing. Open it again from the tray icon. Exit is only in that icon's menu."/>
       <TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="15"/>
       <TextBlock x:Name="AdvisoryText" TextWrapping="Wrap" Foreground="#f6d434" FontSize="14"/>
       <TextBlock Text="Poll interval (seconds, 0.5 to 3600)" FontSize="18" FontWeight="SemiBold"/>
@@ -25,16 +25,33 @@
       <TextBlock x:Name="UrlText" TextWrapping="Wrap" FontFamily="Consolas, monospace"/>
       <Button Content="Copy telemetry URL" Click="CopyUrl"/>
       <TextBlock x:Name="FirewallText" TextWrapping="Wrap" Foreground="#f6d434"/>
-      <TextBlock x:Name="CopyStatus" Foreground="#9aa3b2"/>
+      <Button x:Name="FixFirewallButton" Content="Fix firewall" Click="FixFirewall"/>
+      <TextBlock x:Name="CopyStatus" Foreground="#9aa3b2" TextWrapping="Wrap"/>
+      <TextBlock Text="Windows" FontSize="18" FontWeight="SemiBold"/>
+      <CheckBox x:Name="AutostartBox" Content="Start with Windows" IsChecked="True" Click="ToggleAutostart"/>
+      <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="A logon task runs this program with highest privileges, hidden in the tray. It does not use the Run registry key, so Windows does not ask for consent at each logon."/>
+      <CheckBox x:Name="PiShutdownBox" Content="Power off the paired Pi when Windows shuts down or restarts" IsChecked="True" Click="TogglePiShutdown"/>
+      <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="Tray Exit and closing this window do not power off the Pi. Signing out does not either. A Windows shutdown or restart does, and only for a paired Pi that has a shutdown token."/>
+      <TextBlock Text="Updates" FontSize="18" FontWeight="SemiBold"/>
+      <TextBlock x:Name="UpdateText" TextWrapping="Wrap"/>
+      <TextBlock x:Name="UpdateNotes" TextWrapping="Wrap" Foreground="#9aa3b2"/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="CheckUpdateButton" Content="Check for updates" Click="CheckUpdates"/>
+        <Button x:Name="UpdateButton" Content="Update now" Click="UpdateNow" IsEnabled="False"/>
+      </StackPanel>
       <TextBlock Text="Pairing" FontSize="18" FontWeight="SemiBold"/>
       <TextBlock x:Name="PendingText" TextWrapping="Wrap"/>
       <Button Content="Approve pairing" Click="ApprovePairing"/>
       <TextBlock Text="Paired devices" FontSize="18" FontWeight="SemiBold"/>
-      <TextBlock Text="Choose a device from the list. The list is filled from paired Pis. Revoke removes that device's token hash." TextWrapping="Wrap" Foreground="#9aa3b2"/>
+      <TextBlock Text="Choose a device from the list. Revoke removes that device's token hash. Discovery and the stored token are unchanged, so the Pi can reconnect after a restart." TextWrapping="Wrap" Foreground="#9aa3b2"/>
       <ComboBox x:Name="DeviceBox" HorizontalAlignment="Stretch" PlaceholderText="No paired device yet"/>
       <Button Content="Revoke this device" Click="RevokeDevice"/>
-      <TextBlock Text="The service and Pi power-off stay off until you opt in separately. This window does not write fan curves." TextWrapping="Wrap" Foreground="#9aa3b2"/>
-      <Button Content="Exit" Click="ExitClick"/>
+      <Border BorderBrush="#3a4250" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,8,0,0">
+        <StackPanel Spacing="6">
+          <TextBlock Text="Tray menu" FontWeight="SemiBold"/>
+          <TextBlock TextWrapping="Wrap" Foreground="#9aa3b2" Text="Right-click the tray icon: Open, Start with Windows, Check for updates, and Exit. Left-click or double-click opens this window. Exit is not on this window."/>
+        </StackPanel>
+      </Border>
     </StackPanel>
   </ScrollViewer>
 </Window>
