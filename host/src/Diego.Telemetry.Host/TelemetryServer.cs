@@ -39,6 +39,9 @@ public sealed class TelemetryServer : IAsyncDisposable
 
     public string Prefix { get; private set; } = "";
 
+    /// <summary>Called after a device record changes so the window can save devices.json.</summary>
+    public Action? DevicesChanged { get; set; }
+
     public int Port => _port;
 
     /// <summary>
@@ -318,6 +321,32 @@ public sealed class TelemetryServer : IAsyncDisposable
             }
 
             Write(context, 200, JsonFormat.Serialize(new { ok = true, deviceId = done.DeviceId, deviceToken = done.Token, name = done.Name }, indented: false));
+            DevicesChanged?.Invoke();
+            return true;
+        }
+
+        if (path == "/v1/control/register")
+        {
+            // The Pi tells us its poweroff token. Its address is the TCP peer, never a field in the body.
+            var bearer = Bearer(context.Request);
+            if (!Authorized(bearer))
+            {
+                Write(context, 401, ErrorJson("unauthorized", "Bearer token refused."));
+                return true;
+            }
+
+            var body = ReadJson(context);
+            var controlPort = body.TryGetProperty("controlPort", out var portValue) && portValue.TryGetInt32(out var parsed) ? parsed : 0;
+            var shutdownToken = body.TryGetProperty("shutdownToken", out var tokenValue) ? tokenValue.GetString() ?? "" : "";
+            var error = pairing.RememberControl(bearer, remote, controlPort, shutdownToken);
+            if (error is not null)
+            {
+                Write(context, 400, ErrorJson("control", error));
+                return true;
+            }
+
+            DevicesChanged?.Invoke();
+            Write(context, 200, JsonFormat.Serialize(new { ok = true }, indented: false));
             return true;
         }
 
@@ -331,6 +360,11 @@ public sealed class TelemetryServer : IAsyncDisposable
 
             var id = ReadJson(context).TryGetProperty("deviceId", out var deviceId) ? deviceId.GetString() ?? "" : "";
             var removed = pairing.Revoke(id);
+            if (removed)
+            {
+                DevicesChanged?.Invoke();
+            }
+
             Write(context, removed ? 200 : 404, JsonFormat.Serialize(new { ok = removed }, indented: false));
             return true;
         }
