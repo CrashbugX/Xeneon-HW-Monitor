@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from xeneon.smooth import median_interval, sample_curve
+from xeneon.smooth import GlideHead, glide_value, median_interval, sample_curve, smoothstep
 
 
 class IntervalTests(unittest.TestCase):
@@ -34,6 +34,28 @@ class IntervalTests(unittest.TestCase):
             self.assertLessEqual(max(span), high)
             # A bend exists. The line is not only the two endpoints.
             self.assertGreater(len(set(round(value, 3) for value in span)), 2)
+
+    def test_glide_matches_at_one_three_and_five_seconds(self):
+        self.assertEqual(0.0, smoothstep(0))
+        self.assertEqual(1.0, smoothstep(1))
+        self.assertLess(smoothstep(0.25), 0.25)
+        for interval in (1.0, 3.0, 5.0):
+            self.assertAlmostEqual(40.0, glide_value(40, 70, 0, interval))
+            self.assertAlmostEqual(70.0, glide_value(40, 70, interval, interval))
+            self.assertAlmostEqual(70.0, glide_value(40, 70, interval + 2, interval))
+            quarter = glide_value(40, 70, interval / 4, interval)
+            self.assertAlmostEqual(40 + 30 * smoothstep(0.25), quarter)
+            self.assertLess(quarter, 40 + 30 * 0.25)
+
+    def test_a_bunched_backlog_glides_once_to_the_newest(self):
+        head = GlideHead()
+        head.note([(0.0, 40.0)], 0.0, 3.0)
+        head.note([(0.0, 40.0), (3.0, 50.0), (3.1, 80.0)], 3.1, 3.0)
+        self.assertAlmostEqual(40.0, head.value(3.1))
+        self.assertAlmostEqual(80.0, head.value(6.1))
+        # No new reading: hold. Do not invent a slope.
+        head.note([(0.0, 40.0), (3.0, 50.0), (3.1, 80.0)], 9.0, 3.0)
+        self.assertAlmostEqual(80.0, head.value(9.0))
 
 
 if __name__ == "__main__":

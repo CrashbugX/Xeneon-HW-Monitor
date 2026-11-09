@@ -18,6 +18,7 @@ from pathlib import Path
 from xeneon.bridge import Bridge
 from xeneon.kioskctl import (
     acknowledge,
+    args_use_profile,
     apply_launched_mode,
     browser_argv,
     callback_page,
@@ -521,9 +522,20 @@ class SquareWindowTests(unittest.TestCase):
     def test_launch_flags_are_the_panel_size(self):
         profile = Path("/tmp/xeneon-owned-profile")
         argv = browser_argv("chromium", "windowed", 8734, profile)
-        self.assertIn("--window-size=2560,720", argv)
-        self.assertIn("--window-position=0,0", argv)
-        self.assertNotIn("--window-size=1280,720", argv)
+        self.assertNotIn("--window-size=2560,720", argv)
+        self.assertIn("--new-window", argv)
+        previous = os.environ.get("XENEON_OUTPUT_SIZE")
+        os.environ["XENEON_OUTPUT_SIZE"] = "1920x1080"
+        try:
+            sized = browser_argv("chromium", "fullscreen", 8734, profile)
+        finally:
+            if previous is None:
+                os.environ.pop("XENEON_OUTPUT_SIZE", None)
+            else:
+                os.environ["XENEON_OUTPUT_SIZE"] = previous
+        self.assertIn("--window-size=1920,1080", sized)
+        self.assertIn("--start-fullscreen", sized)
+        self.assertNotIn("--window-size=2560,720", sized)
 
     def test_pause_stays_paused_and_the_lock_is_exclusive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -578,6 +590,13 @@ class SquareWindowTests(unittest.TestCase):
         self.assertEqual(text.count("kiosk.sh"), 1)
         self.assertIn("waybar", text)
         self.assertIn("/new/kiosk.sh", text)
+
+    def test_close_finds_a_split_user_data_dir_flag(self):
+        profile = Path("/home/pi/.config/xeneon/chromium-profile")
+        argv = ["chromium", "--user-data-dir", str(profile), "--app=http://127.0.0.1:8734/"]
+        self.assertTrue(args_use_profile(argv, profile))
+        other = ["chromium", "--user-data-dir=/home/pi/.config/chromium", "https://example.com"]
+        self.assertFalse(args_use_profile(other, profile))
 
 
 if __name__ == "__main__":
