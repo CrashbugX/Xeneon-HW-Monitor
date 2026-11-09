@@ -33,10 +33,10 @@ Run that as the desktop user, not root. It keeps an existing `client.json`, the 
 From the project folder (the one that contains `client/` and `update`), run:
 
 ```sh
-./update
+sh update
 ```
 
-That downloads the current tree into that same folder and prints the folder path. `sh client/scripts/update-from-github.sh` does the same thing. The install script stops the old kiosk loop by its real script path and starts the managed one. You do not look up a process id.
+A GitHub web upload drops the executable bit, so the first run is `sh update`, not `./update`. That downloads the current tree into that same folder and prints the folder path. `install.sh` marks `update` executable, so the next run can be `./update`. `sh client/scripts/update-from-github.sh` does the same download. The install script stops the old kiosk loop by its real script path and starts the managed one. You do not look up a process id.
 
 If that shell is not already in the checkout, the labwc autostart line contains the path:
 
@@ -46,13 +46,13 @@ grep kiosk.sh "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
 
 Change to the directory that contains `client/scripts`, then run the update command above. Do not type a guessed home-folder name.
 
-The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. Close sets paused before Chromium is stopped. The supervisor finds that Chromium by its dedicated profile, including when the stored pid is already gone, and it does not start another window while paused. A second `kiosk.sh` finds `kiosk.lock` held and focuses the existing window. The gear label follows the real window: boot fullscreen says Exit fullscreen, and the first click leaves it. Chromium is not opened again for that click. The window uses the output size `wlr-randr` reports, or no forced size when that tool is absent. It is not pinned to 2560×720. A saved Chromium window size is cleared first. `wlr-randr` output is written to the window log and the mode is not changed. Optional: `sudo apt install wlr-randr`. The page logs its inner width, inner height, and device pixel ratio on the same log. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the page Fullscreen API does not match the window, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. The bridge, pairing, and Spotify login stay.
+The gear at the top right opens Setup, fullscreen, day or night, and Close dashboard. While that menu is open, the next click closes it. A click on empty dashboard only hides the options. A click on a menu item, or on another control such as Spotify transport, still runs that control and then closes the menu.  Close sets paused before Chromium is stopped. The supervisor finds that Chromium by its dedicated profile, including when the stored pid is already gone, and it does not start another window while paused. A second `kiosk.sh` finds `kiosk.lock` held and focuses the existing window. The gear label follows the real window: boot fullscreen says Exit fullscreen, and the first click leaves it. Chromium is not opened again for that click. The window uses the output size `wlr-randr` reports, or no forced size when that tool is absent. It is not pinned to 2560×720. A saved Chromium window size is cleared first. `wlr-randr` output is written to the window log and the mode is not changed. Optional: `sudo apt install wlr-randr`. The page logs its inner width, inner height, and device pixel ratio on the same log. The launcher starts with `--start-fullscreen`, not `--kiosk`, because kiosk mode ignores that control. If the page Fullscreen API does not match the window, the bridge tries `wlrctl` or `wtype` with F11 only. The attempt is appended to `$XDG_RUNTIME_DIR/xeneon/window.log`. Optional package, not installed by the update: `sudo apt install wtype`. The bridge, pairing, and Spotify login stay.
 
 If the PC’s address changes, the Pi repeats discovery on UDP 8764 and tries the stored token. A host that accepts the token is used. Pairing is not repeated. A live connection has no banner. **Disconnected from PC** appears when samples stop. The keyboard button is visible only while Setup is open. Click the dim area around Setup to close it.
 
 Day and night are a saved client setting. They do not follow the clock. Fans in Setup list every Fan sensor from the host inventory. The role stays unknown until you choose CPU, GPU, case, or other. Seen RPM values are samples, not a physical minimum or maximum. This app does not write fan duty.
 
-The round keyboard button asks squeekboard on Wayland, or `wvkbd` if that program is installed. `sh client/scripts/keyboard-packages.sh` only prints the apt line. It does not install anything unless you pass `--install` yourself. Spotify controls are icons. The accessible name is the state, such as Shuffle on or Repeat one.
+The round keyboard button asks squeekboard on Wayland, or `wvkbd` if that program is installed. `sh client/scripts/keyboard-packages.sh` only prints the apt line. It does not install anything unless you pass `--install` yourself. Spotify controls are one row of icons on the card: shuffle, previous, play or pause, next, and repeat. Shuffle off and repeat off are white. Shuffle on and repeat on are green. The accessible name is the state, such as Shuffle on or Repeat one.
 
 Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's desktop is enough. **Setup** is on the dashboard.
 
@@ -60,7 +60,7 @@ Open `http://127.0.0.1:8734/` in the Pi's own browser. Raspberry Pi Connect's de
 2. **Layout.** Turn modules on or off. A hidden module is named in the overflow note. The 2560×720 stage stays the wide layout. Narrow and portrait windows stack the cards and scroll.
 3. **Spotify.** Press **Connect Spotify**. Spotify's own page opens in this browser. Approve it there. You do not type a Client ID, a client secret, or your Spotify password. The built-in public Client ID is `c15bb4b8de984a84a831995690451695`. Advanced can replace it; a blank field returns to that id, and a saved nonempty id is left alone. After consent, **Return to dashboard** goes to `http://127.0.0.1:8734/`. The page also goes there on its own. The address bar is replaced with `/` so the login code is not kept. A failed consent has the same return path and does not print the code.
 
-`sh client/scripts/restart-bridge.sh` restarts that bridge only. It does not close the dashboard window. `./update` downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz` into the project folder that contains `update`, keeps `~/.config/xeneon`, and runs install from that folder. It prints the folder path. It does not copy files from the Windows PC.
+`sh client/scripts/restart-bridge.sh` restarts that bridge only. It does not close the dashboard window. `sh update` downloads `https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/refs/heads/main.tar.gz` into the project folder that contains `update`, keeps `~/.config/xeneon`, and runs install from that folder. It prints the folder path. After that install, `./update` works. It does not copy files from the Windows PC.
 
 Demo mode stays labelled. A live authentication failure does not switch to demo.
 
@@ -77,9 +77,9 @@ This build uses the public Spotify app Client ID `c15bb4b8de984a84a8319956904516
 - Scopes requested: `user-read-playback-state`, `user-read-currently-playing`, `user-modify-playback-state`.
 - There is no public PKCE token-revoke endpoint in the Web API. Log out deletes the local token file. You can also remove the app at https://www.spotify.com/account/apps/.
 
-Shuffle is its own on/off switch. Repeat is a separate cycle: off, all, then one. They are not the same control.
+The Spotify card is the album cover, cropped to fill the tall module, with the title and artist over a dark gradient. Shuffle is its own on/off switch. Repeat is a separate cycle: off, all, then one. They are not the same control.
 
-Paused playback shows **Nothing playing** and **Paused**. The title, art, and progress are hidden. Pause is offered only while something is playing. Play is offered only while paused. No active device, a Premium refusal, a rate limit, and a logged-out state leave the transport buttons disabled and name the reason. There is no volume control. Spotify consent was not completed from this environment.
+Nothing playing shows that title and **Spotify is idle**, with no cover. A paused track keeps the cover, the title, and the progress, and the round button shows play. Pause is offered only while something is playing. Play is offered only while paused. No active device, a Premium refusal, a rate limit, and a logged-out state leave the transport buttons disabled and name the reason. There is no volume control. Spotify consent was not completed from this environment.
 
 ## What this build did not run
 
