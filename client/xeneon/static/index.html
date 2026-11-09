@@ -9,10 +9,12 @@
 <body>
   <!-- Outside the scaled stage so the targets stay 44px on a touch panel. -->
   <div id="window-bar">
-    <button id="setup-open" type="button">Setup</button>
-    <button id="win-window" type="button">Exit fullscreen</button>
-    <button id="win-full" type="button">Fullscreen</button>
-    <button id="win-close" type="button">Close dashboard</button>
+    <div class="bar-actions">
+      <button id="setup-open" type="button">Setup</button>
+      <button id="win-toggle" type="button" disabled>Fullscreen</button>
+      <span class="bar-gap"></span>
+      <button id="win-close" type="button" disabled>Close dashboard</button>
+    </div>
     <p id="win-note" class="win-note" hidden></p>
   </div>
   <!-- The shell is in the HTML so a slow script still shows Connecting, not a blank page. -->
@@ -50,11 +52,11 @@
         <button type="button" data-tab="layout">Layout</button>
         <button type="button" data-tab="spotify">Spotify</button>
       </nav>
-      <p>
-        <button id="win-window-2" type="button">Exit fullscreen</button>
-        <button id="win-full-2" type="button">Fullscreen</button>
-        <button id="win-close-2" type="button">Close dashboard</button>
-      </p>
+      <div class="bar-actions setup-windows">
+        <button id="win-toggle-2" type="button" disabled>Fullscreen</button>
+        <span class="bar-gap"></span>
+        <button id="win-close-2" type="button" disabled>Close dashboard</button>
+      </div>
       <p id="setup-status">Loading.</p>
       <div data-panel="host">
         <p>Discovery broadcasts no token. If the network blocks it, type the Windows address.</p>

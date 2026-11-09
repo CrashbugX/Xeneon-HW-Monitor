@@ -631,8 +631,62 @@ function el(tag, className, text) {
   return node;
 }
 
-async function windowAction(action) {
+/** Launcher-owned window state. Not document.fullscreenElement. */
+let windowState = {
+  enabled: false,
+  closeEnabled: false,
+  pending: true,
+  label: "Fullscreen",
+  action: null,
+  detail: ""
+};
+/** True from the click until a later read shows the launcher finished. */
+let controlsLocked = true;
+/** True while the POST is still on the wire. A poll must not unlock during it. */
+let postInFlight = false;
+
+function paintWindowControls() {
+  const locked = controlsLocked || windowState.pending;
+  ["win-toggle", "win-toggle-2"].forEach(function (id) {
+    const button = document.getElementById(id);
+    if (!button) {
+      return;
+    }
+    button.textContent = windowState.label || "Fullscreen";
+    button.disabled = locked || !windowState.enabled || !windowState.action;
+  });
+  ["win-close", "win-close-2"].forEach(function (id) {
+    const button = document.getElementById(id);
+    if (!button) {
+      return;
+    }
+    button.disabled = locked || !windowState.closeEnabled;
+  });
   const note = document.getElementById("win-note");
+  if (note && windowState.detail) {
+    note.hidden = false;
+    note.textContent = windowState.detail;
+  }
+}
+
+/** Read the launcher ack. A POST response is not enough to unlock the buttons. */
+async function refreshWindow() {
+  try {
+    const response = await fetch("/api/window", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    windowState = await response.json();
+    if (!windowState.pending && !postInFlight) {
+      controlsLocked = false;
+    }
+  } catch (_error) {
+    windowState.detail = "The launcher state could not be read. The buttons stay off until it answers.";
+  }
+  paintWindowControls();
+}
+
+async function postWindow(action) {
   if (!setupToken) {
     await loadSetup();
   }
@@ -641,32 +695,71 @@ async function windowAction(action) {
     headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
     body: JSON.stringify({ action: action })
   });
-  const payload = await response.json();
-  if (note) {
-    note.hidden = false;
-    note.textContent = payload.detail || "The dashboard window did not report a change.";
-  }
-  if (action === "close" && payload.applied) {
-    try {
-      window.close();
-    } catch (error) {
-      /* A browser may refuse window.close. The note below stays honest. */
+  return response.json();
+}
+
+async function waitForLauncher() {
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) {
+    await refreshWindow();
+    if (!windowState.pending) {
+      return;
     }
-    setTimeout(function () {
-      if (!note) {
-        return;
-      }
-      note.hidden = false;
-      note.textContent = "If this dashboard is still open, the window did not close. Reopen it later from the Xeneon HW Monitor menu. The bridge keeps running.";
-    }, 1500);
+    await new Promise(function (resolve) { setTimeout(resolve, 300); });
+  }
+  await refreshWindow();
+  if (windowState.pending) {
+    windowState.detail = "The window change did not finish. The buttons stay off until the launcher reports the mode it actually started.";
+    paintWindowControls();
   }
 }
-document.getElementById("win-window").addEventListener("click", function () { windowAction("windowed"); });
-document.getElementById("win-full").addEventListener("click", function () { windowAction("fullscreen"); });
+
+async function windowAction(action) {
+  if (controlsLocked || windowState.pending || postInFlight) {
+    return;
+  }
+  if (action !== "close" && !windowState.enabled) {
+    return;
+  }
+  if (action === "close" && !windowState.closeEnabled) {
+    return;
+  }
+  postInFlight = true;
+  controlsLocked = true;
+  windowState.pending = true;
+  windowState.label = "Switching…";
+  paintWindowControls();
+  try {
+    const payload = await postWindow(action);
+    if (payload && payload.detail) {
+      windowState.detail = payload.detail;
+      paintWindowControls();
+    }
+  } catch (_error) {
+    windowState.detail = "The launcher did not answer. The buttons stay off until the current change finishes or times out.";
+    paintWindowControls();
+  } finally {
+    postInFlight = false;
+  }
+  await waitForLauncher();
+}
+
+document.getElementById("win-toggle").addEventListener("click", function () {
+  if (!windowState.action) {
+    return;
+  }
+  windowAction(windowState.action);
+});
+document.getElementById("win-toggle-2").addEventListener("click", function () {
+  if (!windowState.action) {
+    return;
+  }
+  windowAction(windowState.action);
+});
 document.getElementById("win-close").addEventListener("click", function () { windowAction("close"); });
-document.getElementById("win-window-2").addEventListener("click", function () { windowAction("windowed"); });
-document.getElementById("win-full-2").addEventListener("click", function () { windowAction("fullscreen"); });
 document.getElementById("win-close-2").addEventListener("click", function () { windowAction("close"); });
+refreshWindow();
+setInterval(refreshWindow, 1000);
 document.getElementById("setup-open").addEventListener("click", openSetup);
 document.getElementById("setup-close").addEventListener("click", () => {
   document.getElementById("setup").hidden = true;
