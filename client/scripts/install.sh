@@ -28,11 +28,15 @@ else
 fi
 LABWC=${XDG_CONFIG_HOME:-$HOME/.config}/labwc
 mkdir -p "$LABWC"
-if [ -f "$LABWC/autostart" ] && grep -q "xeneon-kiosk.sh" "$LABWC/autostart"; then
-  echo "labwc autostart already starts the kiosk."
+# One labwc line. Drop older kiosk.sh lines so login does not start two browsers.
+tmp_auto=$(mktemp)
+if [ -f "$LABWC/autostart" ]; then
+  grep -v 'scripts/kiosk.sh' "$LABWC/autostart" > "$tmp_auto" || true
 else
-  printf '\n%s\n' "sh \"$ROOT/scripts/kiosk.sh\" &" >> "$LABWC/autostart"
+  : > "$tmp_auto"
 fi
+printf '%s\n' "sh \"$ROOT/scripts/kiosk.sh\" supervise >>/tmp/xeneon-kiosk.log 2>&1 &" >> "$tmp_auto"
+mv "$tmp_auto" "$LABWC/autostart"
 cat > "$UNIT_DIR/xeneon-bridge.service" <<EOF
 [Unit]
 Description=Xeneon localhost dashboard bridge
@@ -46,21 +50,27 @@ Environment=PYTHONPATH=$ROOT
 [Install]
 WantedBy=default.target
 EOF
-cat > "$AUTOSTART/xeneon-kiosk.desktop" <<EOF
+# The application menu resumes a closed dashboard. It is not a second autostart.
+rm -f "$AUTOSTART/xeneon-kiosk.desktop"
+APP_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+mkdir -p "$APP_DIR"
+cat > "$APP_DIR/xeneon-dashboard.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Xeneon HW Monitor
-Exec=sh $ROOT/scripts/kiosk.sh
-X-GNOME-Autostart-enabled=true
+Exec=sh "$ROOT/scripts/kiosk.sh" resume
+Terminal=false
+Categories=Utility;
 EOF
+# Stop a pre-0.2.1 loop and any supervisor this app already owns.
+# The command's own pid is skipped. A normal Chromium window is not.
+sh "$ROOT/scripts/kiosk.sh" handoff || true
 sh "$ROOT/scripts/restart-bridge.sh" --stop-only || true
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload || true
   systemctl --user enable --now xeneon-bridge.service || echo "User service did not start. The kiosk script will start the bridge at graphical login. loginctl enable-linger is optional and is not run here."
 fi
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-  if ! tr '\0' ' ' < /proc/[0-9]*/cmdline 2>/dev/null | grep -q "kiosk.sh"; then
-    sh "$ROOT/scripts/kiosk.sh" >/tmp/xeneon-kiosk.log 2>&1 &
-  fi
+  sh "$ROOT/scripts/kiosk.sh" supervise >>/tmp/xeneon-kiosk.log 2>&1 &
 fi
-echo "Installed for $USER. Open http://127.0.0.1:8734/ . A previous manual demo on that port was stopped only if its command line was this app."
+echo "Installed for $USER. The bridge stays on http://127.0.0.1:8734/ . Close dashboard pauses the window until you open Xeneon HW Monitor from the menu, or until the next login."

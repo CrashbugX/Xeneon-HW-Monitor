@@ -10,6 +10,11 @@ URL=${XENEON_SOURCE_URL:-https://github.com/CrashbugX/Xeneon-HW-Monitor/archive/
 DEST=${XDG_CACHE_HOME:-$HOME/.cache}/xeneon-src
 mkdir -p "$DEST"
 archive="$DEST/xeneon.tar.gz"
+# Only a 0.2.1 launcher understands handoff. The older loop ignores its
+# argument and would start another browser if we called it here.
+if [ -f "$DEST/tree/client/scripts/kiosk.sh" ] && grep -q 'handoff)' "$DEST/tree/client/scripts/kiosk.sh"; then
+  sh "$DEST/tree/client/scripts/kiosk.sh" handoff || true
+fi
 curl -fsSL "$URL" -o "$archive"
 rm -rf "$DEST/tree"
 mkdir -p "$DEST/tree"
