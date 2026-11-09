@@ -21,16 +21,23 @@ from xeneon.kioskctl import (
     apply_launched_mode,
     browser_argv,
     callback_page,
+    clear_window_placement,
+    dedupe_autostart,
+    describe_outputs,
     handoff,
     is_bridge_process,
     is_old_launcher,
     old_launcher_pids,
     owned_main_pids,
+    read_mode,
+    reconcile_transition,
     request_action,
     stop_old_launchers,
+    try_kiosk_lock,
+    write_mode,
+    write_transition,
     window_state,
     write_applied_mode,
-    write_mode,
 )
 from xeneon.session import Session
 
@@ -491,6 +498,86 @@ class FakeBrowserSmokeTests(unittest.TestCase):
                 proc.send_signal(subprocess.signal.SIGTERM)
                 proc.wait(timeout=3)
                 subprocess.run(["python3", "-m", "xeneon.kioskctl", "stop-owned"], env=env, check=False)
+
+
+class SquareWindowTests(unittest.TestCase):
+    def test_output_text_is_a_log_and_not_a_mode_change(self):
+        sample = """HDMI-A-1 "XENEON"
+  Enabled: yes
+  Modes:
+    2560x720 px, 60.000000 Hz (preferred)
+    1920x1080 px, 60.000000 Hz (current)
+  Transform: normal
+  Scale: 1.000000
+"""
+        text = describe_outputs(sample)
+        self.assertIn("HDMI-A-1", text)
+        self.assertIn("current=1920x1080", text)
+        self.assertIn("scale=1", text)
+        self.assertIn("transform=normal", text)
+        self.assertNotIn("--mode", text)
+        self.assertNotIn("wlr-randr --output", text)
+
+    def test_launch_flags_are_the_panel_size(self):
+        profile = Path("/tmp/xeneon-owned-profile")
+        argv = browser_argv("chromium", "windowed", 8734, profile)
+        self.assertIn("--window-size=2560,720", argv)
+        self.assertIn("--window-position=0,0", argv)
+        self.assertNotIn("--window-size=1280,720", argv)
+
+    def test_pause_stays_paused_and_the_lock_is_exclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            previous_runtime = os.environ.get("XENEON_RUNTIME_DIR")
+            previous_state = os.environ.get("XENEON_STATE_DIR")
+            os.environ["XENEON_RUNTIME_DIR"] = str(runtime)
+            os.environ["XENEON_STATE_DIR"] = str(runtime / "state")
+            try:
+                write_mode("paused")
+                self.assertEqual("paused", read_mode())
+                write_transition(
+                    {"target": "paused", "revision": 1, "started": 0, "status": "pending", "detail": ""},
+                    runtime,
+                )
+                reconcile_transition(runtime, now=100)
+                self.assertEqual("paused", read_mode())
+                self.assertEqual("paused", (runtime / "state" / "mode").read_text(encoding="utf-8").strip())
+                held = try_kiosk_lock(runtime)
+                self.assertIsNotNone(held)
+                self.assertIsNone(try_kiosk_lock(runtime))
+                held.close()
+            finally:
+                if previous_runtime is None:
+                    os.environ.pop("XENEON_RUNTIME_DIR", None)
+                else:
+                    os.environ["XENEON_RUNTIME_DIR"] = previous_runtime
+                if previous_state is None:
+                    os.environ.pop("XENEON_STATE_DIR", None)
+                else:
+                    os.environ["XENEON_STATE_DIR"] = previous_state
+
+    def test_saved_window_placement_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp)
+            preferences = profile / "Default" / "Preferences"
+            preferences.parent.mkdir()
+            preferences.write_text(json.dumps({
+                "window_placement": {"left": 10, "top": 10, "right": 400, "bottom": 400},
+                "browser": {"window_placement": {"width": 400}},
+            }), encoding="utf-8")
+            clear_window_placement(profile)
+            saved = json.loads(preferences.read_text(encoding="utf-8"))
+            self.assertNotIn("window_placement", saved)
+            self.assertNotIn("window_placement", saved["browser"])
+
+    def test_autostart_keeps_a_single_supervise_line(self):
+        text = dedupe_autostart(
+            "waybar &\nsh /old/kiosk.sh supervise &\nsh /other/kiosk.sh supervise &\n",
+            "sh /new/kiosk.sh supervise &",
+        )
+        self.assertEqual(text.count("kiosk.sh"), 1)
+        self.assertIn("waybar", text)
+        self.assertIn("/new/kiosk.sh", text)
 
 
 if __name__ == "__main__":
