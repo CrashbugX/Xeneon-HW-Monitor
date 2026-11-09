@@ -3,9 +3,9 @@
  *
  * The bridge serves /api/view about once a second of host data, cached locally.
  * This file draws every animation frame so graphs, bars, and fan icons stay
- * smooth when the host poll is slow or briefly fails. Numbers are the latest
- * raw sample, not the interpolated graph point. Temperature colors come from
- * the bridge (thresholds.py). This file only fades them over 150ms.
+ * smooth when the host poll is slow or briefly fails. The big temperature is
+ * the gliding head, the same value as the dot on the curve. Temperature colors
+ * come from the bridge (thresholds.py). This file only fades them over 150ms.
  */
 "use strict";
 
@@ -102,7 +102,8 @@ function render(nowMs) {
     lastGraphMs = nowMs;
     fitStage();
     if (view) {
-      redrawGraphs(nowMs / 1000);
+      // Wall clock, not the rAF timestamp. The rAF clock pauses while the tab is hidden.
+      redrawGraphs(Date.now() / 1000);
       easeBars();
     }
   }
@@ -174,7 +175,6 @@ function paintBanner() {
 function paintWifi() {
   const wifi = view.wifi || {};
   document.getElementById("wifi-ssid").textContent = wifi.ssid || "Wi-Fi unavailable";
-  document.getElementById("wifi-detail").textContent = wifi.detail || wifi.status || "unavailable";
   const bars = document.getElementById("wifi-bars");
   bars.replaceChildren();
   for (let i = 1; i <= 4; i += 1) {
@@ -188,8 +188,8 @@ function paintWifi() {
 }
 
 /**
- * Draw one temperature card. The big number is the raw sample.
- * The canvas line may sit between samples; that interpolation is visual only.
+ * Draw one temperature card. The big number is the gliding head, not the raw sample.
+ * The canvas is filled by redrawGraphs on the next frame.
  * @param {string} key cpu or gpu
  * @param {string} title hardware label, not a sensor reading
  */
@@ -198,7 +198,9 @@ function paintTemp(key, title) {
   const data = view[key];
   const level = data.level || "";
   card.className = "temp-card" + (level ? " level-" + level : "");
-  const text = data.temp == null ? "—" : String(Math.round(data.temp));
+  ingestTrace(key, data);
+  const head = glides[key] ? glides[key].value(Date.now() / 1000) : null;
+  const text = head == null ? (data.temp == null ? "—" : String(Math.round(data.temp))) : String(Math.round(head));
   card.innerHTML = "";
   card.append(el("div", "kicker", title));
   const hero = el("div", "hero", text);
@@ -215,8 +217,6 @@ function paintTemp(key, title) {
   canvas.height = 220;
   canvas.dataset.trace = key;
   card.append(canvas);
-  ingestTrace(key, data);
-  drawGraph(canvas, traces[key], levelColor(level), Date.now() / 1000, data.sampleInterval);
   const fans = el("div", "fans");
   const assigned = ((view && view.fanBoard) || []).filter(function (fan) { return fan.role === key; });
   const list = assigned.length
@@ -276,24 +276,52 @@ function smoothstep(unit) {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
-/** Historical samples stay put. The newest one eases in over the measured interval. */
-function visibleTrace(points, now, interval) {
-  if (!points.length) {
-    return [];
-  }
-  if (points.length === 1) {
-    return [{ t: now, v: points[0].v }];
-  }
-  const prev = points[points.length - 2];
-  const last = points[points.length - 1];
-  const duration = interval > 0 ? interval : Math.max(0.5, last.t - prev.t);
-  const eased = smoothstep(Math.max(0, now - last.t) / duration);
-  const shown = prev.v + (last.v - prev.v) * eased;
-  const tip = prev.t + (Math.max(last.t, prev.t) - prev.t) * eased;
-  const fixed = points.slice(0, -1).map(function (point) { return { t: point.t, v: point.v }; });
-  fixed.push({ t: tip, v: shown });
-  return fixed;
+/**
+ * The line is the path of the displayed head, not a curve through raw samples.
+ * A 3 second poll still glides, because the head moves every frame.
+ * The number on the card is this same value.
+ */
+function GlideHead() {
+  this.origin = null;
+  this.target = null;
+  this.started = 0;
+  this.duration = 1;
+  this.seenT = null;
 }
+
+GlideHead.prototype.note = function (points, now, interval) {
+  if (!points.length) {
+    return;
+  }
+  const newest = points[points.length - 1];
+  if (this.seenT === null) {
+    this.origin = newest.v;
+    this.target = newest.v;
+    this.started = now;
+    this.duration = interval > 0 ? interval : 1;
+    this.seenT = newest.t;
+    return;
+  }
+  if (newest.t <= this.seenT + 1e-9) {
+    return;
+  }
+  this.origin = this.value(now);
+  this.target = newest.v;
+  this.started = now;
+  this.duration = interval > 0 ? interval : 1;
+  this.seenT = newest.t;
+};
+
+GlideHead.prototype.value = function (now) {
+  if (this.target === null || this.origin === null) {
+    return null;
+  }
+  const duration = this.duration > 0 ? this.duration : 1;
+  return this.origin + (this.target - this.origin) * smoothstep((now - this.started) / duration);
+};
+
+const glides = { cpu: new GlideHead(), gpu: new GlideHead() };
+const trails = { cpu: [], gpu: [] };
 
 function monotoneSlopes(xs, ys) {
   const count = xs.length;
@@ -359,15 +387,15 @@ function curvePoints(points) {
 }
 
 /**
- * Smooth temperature curve. The right edge is "now", so the line scrolls
- * between samples. The duration of the newest point is the measured gap.
+ * Draw the head's trail. Right edge is wall-clock now, so it scrolls at a
+ * constant px/sec. A new sample does not jump the line; the head eases.
  * @param {HTMLCanvasElement} canvas
- * @param {{t: number, v: number}[]} points
- * @param {string} color
+ * @param {{t: number, v: number}[]} trail
+ * @param {number | null} head
  * @param {number} now seconds
- * @param {number} interval seconds
+ * @param {string} color
  */
-function drawGraph(canvas, points, color, now, interval) {
+function drawGraph(canvas, trail, head, now, color) {
   const ctx = canvas.getContext("2d");
   const low = 30;
   const high = 95;
@@ -375,6 +403,7 @@ function drawGraph(canvas, points, color, now, interval) {
   const right = canvas.width - 8;
   const top = 12;
   const bottom = canvas.height - 16;
+  const windowSeconds = 30;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const day = document.documentElement.dataset.theme === "day";
   ctx.strokeStyle = day ? "#d5deea" : "rgba(255,255,255,0.18)";
@@ -393,24 +422,25 @@ function drawGraph(canvas, points, color, now, interval) {
     ctx.stroke();
     ctx.fillText(String(mark) + "°", 2, y + 4);
   });
-  const shown = visibleTrace(points || [], now, interval || 1);
-  if (shown.length < 2) {
+  if (head == null) {
     return;
   }
-  // The newest point stays near the right. It drifts left only for one measured
-  // interval, so a clock jump cannot push the whole curve off the card.
-  const lastStamp = shown[shown.length - 1].t;
-  const lead = Math.min(Math.max(0, now - lastStamp), interval || 1);
-  const rightEdge = lastStamp + lead;
-  const span = Math.max((interval || 1) * 12, lastStamp - shown[0].t, 1);
-  const start = rightEdge - span;
+  const start = now - windowSeconds;
   function xOf(stamp) {
-    return left + ((stamp - start) / span) * (right - left);
+    return left + ((stamp - start) / windowSeconds) * (right - left);
   }
-  const curved = curvePoints(shown);
-  function traceCurve() {
+  const shown = trail.filter(function (point) { return point.t >= start && point.t <= now; });
+  shown.push({ t: now, v: head });
+  if (shown.length < 2) {
     ctx.beginPath();
-    curved.forEach(function (point, index) {
+    ctx.arc(xOf(now), yOf(head), 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    return;
+  }
+  function trace() {
+    ctx.beginPath();
+    shown.forEach(function (point, index) {
       const x = xOf(point.t);
       const y = yOf(point.v);
       if (index === 0) {
@@ -420,10 +450,9 @@ function drawGraph(canvas, points, color, now, interval) {
       }
     });
   }
-  traceCurve();
-  const last = curved[curved.length - 1];
-  ctx.lineTo(xOf(last.t), bottom);
-  ctx.lineTo(xOf(curved[0].t), bottom);
+  trace();
+  ctx.lineTo(xOf(now), bottom);
+  ctx.lineTo(xOf(shown[0].t), bottom);
   ctx.closePath();
   const fade = ctx.createLinearGradient(0, top, 0, bottom);
   fade.addColorStop(0, color);
@@ -432,14 +461,33 @@ function drawGraph(canvas, points, color, now, interval) {
   ctx.fillStyle = fade;
   ctx.fill();
   ctx.globalAlpha = 1;
-  traceCurve();
+  trace();
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(xOf(last.t), yOf(last.v), 5, 0, Math.PI * 2);
+  ctx.arc(xOf(now), yOf(head), 5, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
+}
+
+function paintHead(key, value) {
+  const hero = document.querySelector("#" + key + " .hero");
+  if (!hero || value == null || Number.isNaN(value)) {
+    return;
+  }
+  const rounded = String(Math.round(value));
+  const current = hero.firstChild && hero.firstChild.nodeType === 3 ? hero.firstChild.textContent : "";
+  if (current === rounded) {
+    return;
+  }
+  let unit = hero.querySelector(".unit");
+  if (!unit) {
+    unit = el("span", "unit", "°C");
+  }
+  hero.textContent = "";
+  hero.append(document.createTextNode(rounded));
+  hero.append(unit);
 }
 
 /** @param {string} level */
@@ -517,12 +565,26 @@ function redrawGraphs(nowSeconds) {
   const now = nowSeconds || Date.now() / 1000;
   ["cpu", "gpu"].forEach((key) => {
     const canvas = document.querySelector("#" + key + " canvas");
+    const points = traces[key] || [];
     if (!canvas || !view[key]) {
       return;
     }
-    const times = (traces[key] || []).map(function (point) { return point.t; });
-    const interval = medianInterval(times);
-    drawGraph(canvas, traces[key], levelColor(view[key].level || ""), now, interval);
+    const interval = medianInterval(points.map(function (point) { return point.t; }));
+    glides[key].note(points, now, interval);
+    const head = glides[key].value(now);
+    paintHead(key, head);
+    if (head != null) {
+      const trail = trails[key];
+      const last = trail[trail.length - 1];
+      if (!last || now - last.t >= 0.05) {
+        trail.push({ t: now, v: head });
+      }
+      const cutoff = now - 30;
+      while (trail.length && trail[0].t < cutoff) {
+        trail.shift();
+      }
+    }
+    drawGraph(canvas, trails[key], head, now, levelColor(view[key].level || ""));
   });
 }
 
@@ -937,11 +999,37 @@ let controlsLocked = true;
 /** True while the POST is still on the wire. A poll must not unlock during it. */
 let postInFlight = false;
 
+/**
+ * Chromium --start-fullscreen fills the screen without setting fullscreenElement.
+ * Compare the window to the screen. Null means the size is not known yet.
+ * @returns {boolean | null}
+ */
+function browserChromeFullscreen() {
+  const screenWidth = window.screen && window.screen.width;
+  const screenHeight = window.screen && window.screen.height;
+  if (!screenWidth || !screenHeight || !window.outerWidth || !window.outerHeight) {
+    return null;
+  }
+  return window.outerWidth >= screenWidth - 8 && window.outerHeight >= screenHeight - 8;
+}
+
+/** Real fullscreen: the page API, or a browser window that fills the screen. */
+function windowIsFullscreen() {
+  if (document.fullscreenElement) {
+    return true;
+  }
+  const chrome = browserChromeFullscreen();
+  if (chrome !== null) {
+    return chrome;
+  }
+  return !!(windowState.managed && (windowState.appliedMode || windowState.mode) === "fullscreen");
+}
+
 function paintWindowControls() {
   const locked = controlsLocked || windowState.pending;
   const toggle = document.getElementById("gear-window");
   if (toggle) {
-    const full = !!document.fullscreenElement;
+    const full = windowIsFullscreen();
     toggle.textContent = locked ? "Switching…" : (full ? "Exit fullscreen" : "Fullscreen");
     toggle.disabled = locked;
     toggle.dataset.action = full ? "windowed" : "fullscreen";
@@ -1045,7 +1133,8 @@ async function windowAction(action) {
     changed = false;
   }
   await new Promise(function (resolve) { setTimeout(resolve, 400); });
-  changed = !!document.fullscreenElement === wantFull;
+  changed = windowIsFullscreen() === wantFull;
+  // The page API cannot see --start-fullscreen. Leaving that needs one F11.
   if (!changed) {
     try {
       const payload = await postWindowFallback(action);
@@ -1056,12 +1145,15 @@ async function windowAction(action) {
       windowState.detail = "The fullscreen fallback did not answer.";
     }
     await new Promise(function (resolve) { setTimeout(resolve, 800); });
-    changed = !!document.fullscreenElement === wantFull;
+    await refreshWindow();
+    changed = windowIsFullscreen() === wantFull;
   } else {
     postWindowFallback(action, false);
   }
   controlsLocked = false;
   windowState.pending = false;
+  windowState.appliedMode = changed ? (wantFull ? "fullscreen" : "windowed") : (windowState.appliedMode || windowState.mode);
+  windowState.mode = windowState.appliedMode;
   windowState.label = wantFull && changed ? "Exit fullscreen" : "Fullscreen";
   windowState.action = wantFull && changed ? "windowed" : "fullscreen";
   windowState.enabled = true;
@@ -1309,6 +1401,12 @@ document.getElementById("gear").addEventListener("click", function () {
   const menu = document.getElementById("gear-menu");
   menu.hidden = !menu.hidden;
   document.getElementById("gear").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+});
+document.addEventListener("fullscreenchange", function () {
+  paintWindowControls();
+});
+window.addEventListener("resize", function () {
+  paintWindowControls();
 });
 document.getElementById("gear-window").addEventListener("click", function () {
   const toggle = document.getElementById("gear-window");

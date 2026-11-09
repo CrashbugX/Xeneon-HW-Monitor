@@ -203,9 +203,7 @@ button.transport.on { color: var(--text); border-color: var(--green); }
   transform-origin: center center;
   background: var(--bg);
 }
-header { position: absolute; left: 28px; right: 28px; top: 18px; height: 52px; }
-.brand { position: absolute; left: 0; top: 8px; font-size: 17px; letter-spacing: 0.04em; }
-.brand span { color: var(--mut); font-weight: 400; }
+header { position: absolute; left: 28px; right: 28px; top: 12px; height: 36px; }
 .banner {
   position: absolute; left: 50%; top: 6px; transform: translateX(-50%);
   min-width: 560px; text-align: center; padding: 10px 22px; border-radius: 18px;
@@ -216,23 +214,25 @@ header { position: absolute; left: 28px; right: 28px; top: 18px; height: 52px; }
 .banner.stale, .banner.disconnected, .banner.unauthorized {
   background: #241416; color: #ffb0a8; border: 1px solid #6a3030;
 }
-.wifi { position: absolute; right: 0; top: 0; text-align: right; }
+.wifi { position: absolute; right: 0; top: 0; display: flex; align-items: center; gap: 10px; }
 #wifi-ssid { font-size: 14px; font-weight: 650; }
-#wifi-detail { color: var(--dim); font-size: 11px; margin-top: 2px; }
-.bars { display: flex; gap: 3px; justify-content: flex-end; align-items: flex-end; height: 18px; margin-top: 4px; }
+.bars { display: flex; gap: 3px; align-items: flex-end; height: 18px; margin-top: 0; }
 .bars i { display: block; width: 5px; background: #343a44; border-radius: 1px; }
 .bars i.on { background: var(--text); }
 .temp-card, .panel {
   position: absolute; border-radius: 16px; background: var(--panel); border: 1.5px solid var(--line);
   transition: background-color 150ms linear, border-color 150ms linear, color 150ms linear;
 }
-#cpu { left: 28px; top: 84px; width: 552px; height: 568px; }
-#gpu { left: 596px; top: 84px; width: 552px; height: 568px; }
-#mid { position: absolute; left: 1164px; top: 84px; width: 764px; height: 568px; }
+#cpu { left: 28px; top: 52px; width: 552px; height: 648px; }
+#gpu { left: 596px; top: 52px; width: 552px; height: 648px; }
+#mid { position: absolute; left: 1164px; top: 52px; width: 764px; height: 648px; }
 #load { position: absolute; left: 0; top: 0; width: 764px; height: 272px; }
 #stats { position: absolute; left: 0; top: 288px; width: 764px; height: 184px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
 #cases { position: absolute; left: 0; top: 488px; width: 764px; height: 80px; }
-#spotify { left: 1952px; top: 84px; width: 580px; height: 568px; }
+#spotify { left: 1952px; top: 52px; width: 580px; height: 648px; }
+#load { height: 320px; }
+#stats { top: 336px; }
+#cases { top: 536px; }
 footer {
   position: absolute; left: 28px; right: 28px; bottom: 14px;
   color: var(--mut); font-size: 13px;
@@ -249,7 +249,7 @@ footer {
 .pill { display: none; }
 .temp-card .sub { color: var(--mut); font-size: 15px; margin-top: 14px; text-align: center; }
 .sub { color: var(--mut); font-size: 15px; }
-canvas.graph { position: absolute; left: 22px; right: 22px; top: 268px; width: calc(100% - 44px); height: 210px; }
+canvas.graph { position: absolute; left: 22px; right: 22px; top: 268px; width: calc(100% - 44px); height: 280px; }
 .fans { position: absolute; left: 22px; right: 22px; bottom: 22px; display: flex; gap: 18px; align-items: center; }
 .fan { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 13px; }
 .fan b { color: var(--text); font-family: ui-monospace, monospace; font-size: 17px; font-weight: 500; }
