@@ -89,6 +89,11 @@ else
   fi
 fi
 PROJECT=$(CDPATH= cd -- "$ROOT/.." && pwd)
+# A browser upload of this tree is not executable. Mark it so the next run can be ./update.
+if [ -f "$PROJECT/update" ]; then
+  chmod +x "$PROJECT/update"
+fi
 echo "Project folder: $PROJECT"
-echo "Update later with: $PROJECT/update"
+echo "Update later with: ./update"
+echo "If this copy came from a browser upload, the first run is: sh update"
 echo "Installed for $USER. The bridge stays on http://127.0.0.1:8734/ . Close dashboard pauses the window until you open Xeneon HW Monitor from the menu, or until the next login."

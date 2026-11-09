@@ -32,5 +32,5 @@ if [ -f "$CONFIG_DIR/client.json" ]; then
 fi
 sh "$PROJECT/client/scripts/install.sh"
 echo "Project folder: $PROJECT"
-echo "Update later with: $PROJECT/update"
+echo "Update later with: ./update   (the first run from a browser upload is: sh update)"
 echo "Updated from $URL"

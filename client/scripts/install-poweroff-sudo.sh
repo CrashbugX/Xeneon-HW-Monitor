@@ -10,7 +10,7 @@ fi
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 USER_NAME=${1:-${SUDO_USER:-}}
 if [ -z "$USER_NAME" ] || [ "$USER_NAME" = "root" ]; then
-  echo "Pass the desktop user name: sudo sh client/scripts/install-poweroff-sudo.sh souler" >&2
+  echo "Pass the desktop user name: sudo sh client/scripts/install-poweroff-sudo.sh pi" >&2
   exit 1
 fi
 install -m 0755 "$ROOT/scripts/xeneon-poweroff" /usr/local/sbin/xeneon-poweroff
