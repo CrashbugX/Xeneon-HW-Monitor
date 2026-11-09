@@ -1,3 +1,29 @@
+# Client 0.4.2
+
+Pairing creates a shutdown token and sends it to the PC. The Pi listens on port 8766 by default. Only the paired PC's token, from that PC's address, can `POST /v1/poweroff`. Setup shows **Allow PC to power off this Pi**, on by default. An already-paired Pi sends the token again on its next connection. `sudo sh client/scripts/install-poweroff-sudo.sh` installs the helper once so later poweroffs do not ask for a password. Install prints that command if sudo is still needed.
+
+# Host 0.3.0
+
+Windows host 0.3.0. Client shutdown exchange is 0.4.2.
+
+The program requires administrator. A logon task, not the Run key, starts it hidden in the tray with highest privileges. Setup adds inbound TCP 8765 and UDP 8764 for this exe on Private and Domain, local subnet, and removes them on uninstall. The window warns when the rules are missing and Fix firewall adds them again. Closing the window hides it. Exit is only in the tray menu, which also has Open, Start with Windows, and Check for updates. The first hide shows a notice.
+
+Windows shutdown or restart, with the setting on, asks a paired Pi that has a shutdown token to power off. Tray Exit, hiding the window, and logoff do not. Discovery on UDP 8764 and the stored pairing token are unchanged.
+
+Check for updates reads GitHub releases of CrashbugX/Xeneon-HW-Monitor. Update now downloads `XeneonHwMonitorHost-X.Y.Z-win-x64.exe` from a tag `host-vX.Y.Z`, checks the size and SHA-256 from the release notes or the `.sha256` asset, then runs the installer with `/S`. The installer overwrites the same directory and keeps settings and pairings. It does not install until that click. 0.2.0 has no updater, so installing 0.3.0 the first time is still manual. `.github/workflows/host-release.yml` builds the installer on a `host-v*` tag.
+
+Client 0.4.2 opens that port and sends the token. No JSON edit is required.
+
+# Client 0.4.1 temperature modules
+
+CPU and GPU cards follow Diego's mockup. The state badge is gone. The reading and the min/avg/max line are centered. The title and the fan row keep about 22px of padding. The graph is a monotone curve with a soft fill and a dot on the newest sample. The interval is the rolling median of the gaps between sample timestamps, so it follows a poll of 0.5s, 3s, 10s, or a change from one to another. Drawing stays near 30 fps and pauses while the page is hidden.
+
+# Client 0.4.1
+
+The small square with black borders is an extra Chromium window, not the panel's resolution. Other Chromium windows on the same Pi were already the right size. Close used to let the supervisor start another Chromium, and that extra window came up at a saved or default size with the narrow layout, so the panel showed as a square inside black borders.
+
+Close now writes paused before Chromium is killed. A second launcher takes `kiosk.lock` and focuses the existing window instead of starting another one. The owned window is still launched with `--window-size=2560,720` and `--window-position=0,0`, and a saved `window_placement` is cleared. `wlr-randr` is logged on launch and the output mode is not changed. The page logs `innerWidth`, `innerHeight`, and `devicePixelRatio` to the window log. Optional: `sudo apt install wlr-randr`.
+
 # Client 0.4.0
 
 Against published client 0.3.0 (`349f4e8`). The Windows host stays 0.2.0. No installer.
