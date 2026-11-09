@@ -1,0 +1,6 @@
+#!/bin/sh
+# Update this project folder from GitHub. Run it as ./update from the folder
+# that contains client/. Config and tokens in ~/.config/xeneon are kept.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+exec sh "$ROOT/client/scripts/update-from-github.sh"

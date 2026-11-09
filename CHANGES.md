@@ -1,3 +1,17 @@
+# Client 0.4.3
+
+The temperature line is the path of the displayed head. When a reading arrives, the head eases from its current value to that reading over the measured interval (smoothstep), and the big number is the same value. The time axis is the last 30 seconds of wall-clock time, so it scrolls at a constant speed. A missed reading holds. Several readings at once glide once to the newest. The interval is still the rolling median of recent gaps.
+
+Close looks up Chromium by the dedicated profile, including a split `--user-data-dir` flag, signals that process group, and confirms it is gone. An empty stored pid no longer skips the kill.
+
+The window is fullscreen on the output `wlr-randr` reports. It is not forced to 2560×720 on a 1920×1080 headless output. The page still scales a 2560×720 stage, so a real panel of that size fills the screen.
+
+The gear menu uses the launcher's fullscreen mode until the page Fullscreen API has actually changed, so boot shows Exit fullscreen and the first click leaves fullscreen.
+
+Wi-Fi is the SSID and the bars on one row. The SYSTEM / OVERVIEW title is gone and the cards use that space.
+
+`./update` in the project folder runs the GitHub update and prints that folder's path.
+
 # Client 0.4.2
 
 Pairing creates a shutdown token and sends it to the PC. The Pi listens on port 8766 by default. Only the paired PC's token, from that PC's address, can `POST /v1/poweroff`. Setup shows **Allow PC to power off this Pi**, on by default. An already-paired Pi sends the token again on its next connection. `sudo sh client/scripts/install-poweroff-sudo.sh` installs the helper once so later poweroffs do not ask for a password. Install prints that command if sudo is still needed.
