@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from xeneon.kioskctl import callback_page, request_action
 from xeneon.session import Session
 from xeneon.wifi import read_wifi
 
@@ -38,6 +39,8 @@ class Bridge:
         self._stop = threading.Event()
         handler = _page_factory(self)
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+        # Port 0 asks the OS for a free port. Origin checks use the port that was bound.
+        self.port = int(self.httpd.server_address[1])
         self.page_thread = threading.Thread(target=self.httpd.serve_forever, name="xeneon-page", daemon=True)
         self.poll_thread = threading.Thread(target=self._poll, name="xeneon-poll", daemon=True)
 
@@ -85,6 +88,8 @@ class Bridge:
         if not _origin_ok(self, handler):
             return False
         sent = handler.headers.get("X-Xeneon-Setup") or ""
+        if len(sent) != len(self.csrf):
+            return False
         return secrets.compare_digest(sent, self.csrf)
 
     def route_post(self, path: str, body: dict) -> tuple[int, dict]:
@@ -93,6 +98,9 @@ class Bridge:
                 return 404, {"ok": False, "error": "not_demo"}
             status, reason = self.session.demo_transport(str(body.get("action")))
             return status, {"ok": status == 200, "error": None if status == 200 else reason}
+        if path == "/api/window":
+            result = request_action(str(body.get("action") or ""))
+            return (200 if result.get("ok") else 400), result
         if path == "/api/spotify/action":
             if self.session.mode == "demo" or self.spotify is None:
                 return 409, {"ok": False, "error": "spotify_not_connected"}
@@ -106,7 +114,7 @@ class Bridge:
 
     def finish_spotify(self, handler: BaseHTTPRequestHandler) -> None:
         if self.spotify is None:
-            _html(handler, 404, "Spotify is not configured.")
+            _raw_html(handler, 404, callback_page(False))
             return
         query = urllib.parse.urlparse(handler.path).query
         params = urllib.parse.parse_qs(query)
@@ -114,14 +122,14 @@ class Bridge:
         state = (params.get("state") or [""])[0]
         error = (params.get("error") or [""])[0]
         if error:
-            _html(handler, 400, "Spotify did not grant access. You can close this page.")
+            _raw_html(handler, 400, callback_page(False))
             return
         try:
             self.spotify.finish(code, state)
-        except ValueError as exc:
-            _html(handler, 400, str(exc))
+        except ValueError:
+            _raw_html(handler, 400, callback_page(False))
             return
-        _html(handler, 200, "Spotify connected. You can close this page and return to the dashboard.")
+        _raw_html(handler, 200, callback_page(True))
 
     def _poll(self) -> None:
         while not self._stop.wait(1.0):
@@ -187,6 +195,11 @@ def _page_factory(bridge: Bridge):
 
         def do_POST(self) -> None:  # noqa: N802
             path = self.path.split("?", 1)[0]
+            # Window actions are an enum for this browser only. A missing or
+            # foreign Origin, or a Host that is not this loopback port, is refused.
+            if path == "/api/window" and not _window_origin_ok(bridge, self):
+                _json(self, 403, {"ok": False, "error": "origin"})
+                return
             if not bridge.allow_post(self):
                 _json(self, 403, {"ok": False, "error": "csrf"})
                 return
@@ -202,17 +215,46 @@ def _page_factory(bridge: Bridge):
     return Handler
 
 
+def _local_origins(bridge: Bridge) -> set[str]:
+    return {f"http://127.0.0.1:{bridge.port}", f"http://[::1]:{bridge.port}"}
+
+
+def _local_hosts(bridge: Bridge) -> set[str]:
+    return {f"127.0.0.1:{bridge.port}", f"localhost:{bridge.port}", f"[::1]:{bridge.port}"}
+
+
 def _origin_ok(bridge: Bridge, handler: BaseHTTPRequestHandler) -> bool:
     origin = handler.headers.get("Origin")
     if not origin:
         return True
-    return origin == f"http://127.0.0.1:{bridge.port}" or origin == f"http://[::1]:{bridge.port}"
+    return origin in _local_origins(bridge)
+
+
+def _window_origin_ok(bridge: Bridge, handler: BaseHTTPRequestHandler) -> bool:
+    """Window controls require both a loopback Origin and a loopback Host.
+
+    Other setup posts still allow a missing Origin so same-machine tools keep
+    working. A page on the LAN cannot satisfy this check.
+    """
+    origin = handler.headers.get("Origin") or ""
+    host = handler.headers.get("Host") or ""
+    return origin in _local_origins(bridge) and host in _local_hosts(bridge)
 
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
     data = json.dumps(payload).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _raw_html(handler: BaseHTTPRequestHandler, status: int, document: str) -> None:
+    data = document.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
