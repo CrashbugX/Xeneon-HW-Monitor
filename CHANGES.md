@@ -1,42 +1,36 @@
-# Unpublished 0.2.0
+# Client 0.2.1
 
-Nothing here has been uploaded. Reassemble the five parts, check the full hash, then install over 0.1.1.
+Client-only patch against the 0.2.0 tree (`4dfdc64`). The Windows host and its installer are unchanged. No installer is part of this update.
 
-Full installer: 35,352,648 bytes, SHA-256 `d34e5e4695f2a9b33761a927215fbe94acbc54fa7acba95636fd41319b12c972`. Unsigned. PE checksum `0x021C3D53`.
+## New
 
-```sh
-cat \
-  XeneonHwMonitorHost-0.2.0-win-x64.part001 \
-  XeneonHwMonitorHost-0.2.0-win-x64.part002 \
-  XeneonHwMonitorHost-0.2.0-win-x64.part003 \
-  XeneonHwMonitorHost-0.2.0-win-x64.part004 \
-  XeneonHwMonitorHost-0.2.0-win-x64.part005 \
-  > XeneonHwMonitorHost-0.2.0-win-x64.exe
-sha256sum XeneonHwMonitorHost-0.2.0-win-x64.exe
-```
+- `client/xeneon/kioskctl.py` — owned-browser commands, pid checks, pause file, Spotify return page
+- `client/tests/test_kiosk.py` — action auth, origin, pid ownership, window mode, pause, resume, launchers, tokens, callback
 
-| Part | Bytes | SHA-256 |
-| --- | ---: | --- |
-| `XeneonHwMonitorHost-0.2.0-win-x64.part001` | 8000000 | `46637621032734cce3046e8b47678370b653b7fb5e61b8ee21f6784879afa396` |
-| `XeneonHwMonitorHost-0.2.0-win-x64.part002` | 8000000 | `3897bbad8d6e020b22be103db912af85f702eef00d7647015f7efd79982b7cf1` |
-| `XeneonHwMonitorHost-0.2.0-win-x64.part003` | 8000000 | `d1f1587da3a8a37dda6b5557283aa8014053d0cb4b4d84c340bc45b5138b4b4d` |
-| `XeneonHwMonitorHost-0.2.0-win-x64.part004` | 8000000 | `18ecf19fa751e8579a30397ba0ef7a18b5f09ba66354708b4ffa1e1850604113` |
-| `XeneonHwMonitorHost-0.2.0-win-x64.part005` | 3352648 | `d35aa5662e650a8e93cd37cc928987433f76c1590390e876295e2622703faa88` |
+## Changed
 
-## Since the previous unpublished 0.2.0 tree
+- `client/scripts/kiosk.sh` — one supervisor instead of the `while true` kiosk loop
+- `client/scripts/install.sh` — one labwc line, menu shortcut, stops the old launcher
+- `client/scripts/restart-bridge.sh` — restarts `python -m xeneon` only
+- `client/scripts/update-from-github.sh` — stops an owned supervisor before replacing the cached tree
+- `client/scripts/uninstall.sh` — stops the owned window and removes the labwc line and menu item
+- `client/xeneon/__init__.py` — client version 0.2.1
+- `client/xeneon/bridge.py` — `POST /api/window` and the Spotify return page
+- `client/xeneon/static/index.html` — Exit fullscreen, Fullscreen, Close dashboard
+- `client/xeneon/static/app.js` — those actions, and no claim that a window closed while it is still open
+- `client/xeneon/static/app.css` — fixed window bar
+- `client/README.md` — launcher notes
+- `docs/ONBOARDING.md` — Pi section
+- `CHANGES.md` — this file
 
-Portrait layout wraps the demo banner and places the state badge under the temperature. The wide 2560×720 stage is unchanged.
+## Deleted
 
-The optional firewall section runs `Repair-PrivateFirewall.ps1`. It reads `publishPort` and `discoveryPort` from `host.json` and adds inbound TCP and UDP rules for the Private profile and the local subnet. It does not open Public and it does not turn the firewall off. Apply port moves the listener and the published URLs. It does not edit the firewall. Run the script yourself, elevated, after a port change. The window does not open the administrator prompt.
+None.
 
-Connect Spotify uses the public Client ID `c15bb4b8de984a84a831995690451695`. A fresh install and a config with a missing or blank id use it. A saved nonempty id is kept. Tokens stay in the private Spotify file. The registered redirect is `http://127.0.0.1/spotify/callback`. The bridge sends `http://127.0.0.1:8734/spotify/callback`.
+## Behavior
 
-Pi scripts are started with `sh`, because a browser upload does not keep the executable bit. `sh client/scripts/restart-bridge.sh` stops only a process whose command line is this app, then restarts the user service.
+Exit fullscreen relaunches the owned Chromium without `--kiosk`. Fullscreen puts `--kiosk` back. Close dashboard sets a pause for this login so the two-second loop cannot reopen the window. The bridge, pairing, and Spotify files stay. The next login starts fullscreen again. Reopen from the **Xeneon HW Monitor** menu item.
 
-## Pi
+The Spotify callback is a Return to dashboard page. It also navigates to `/` and removes the code from the address bar. Errors use that same page.
 
-```sh
-sh client/scripts/install.sh
-sh client/scripts/restart-bridge.sh
-sh client/scripts/update-from-github.sh
-```
+Updating with the existing `sh client/scripts/update-from-github.sh` runs the new install script, which stops the old `kiosk.sh` loop when that process argument is a real `scripts/kiosk.sh` file. It does not stop a normal Chromium window.
