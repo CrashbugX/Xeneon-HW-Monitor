@@ -1,9 +1,12 @@
-The settings window and a normal install do not change the Windows Firewall.
+Setup adds two inbound rules and can add them again. It does not turn the firewall off.
 
-The Pi reaches this PC in two ways. A discovery query is inbound UDP on discoveryPort (8764 unless you changed it). Pairing and telemetry are inbound TCP on publishPort (8765 unless you changed it). Windows often blocks those on a Private network. The discovery reply goes back to the Pi's own port, so the Pi does not need an inbound rule. Typing the PC address on the Pi uses TCP only, which still works when UDP is blocked.
+TCP 8765 (or publishPort in host.json) is pairing and telemetry. The rule is named "Xeneon HW Monitor - TCP 8765".
+UDP 8764 (or discoveryPort) is discovery. The rule is named "Xeneon HW Monitor - UDP 8764".
+Both are limited to the Private and Domain profiles, the local subnet, and XeneonHwMonitor.exe.
+Public is not opened.
 
-Repair-PrivateFirewall.ps1 reads those two ports from host.json and runs netsh advfirewall. It deletes the app's old rules and adds inbound TCP and UDP rules for the Private profile and the local subnet. It does not add a Public or Domain rule, and it does not turn the firewall off. Run it yourself from an elevated PowerShell. The script does not request elevation, so Windows asks only if you start the elevated window.
+The settings window shows a warning when those rules are missing. Fix firewall adds them again. The program is already elevated.
 
-After you change the port in the settings window, the listener moves immediately. An old firewall rule still names the previous port until you run the script again.
+Uninstall deletes the rules with netsh advfirewall. An upgrade runs the same script, so the rules are replaced rather than piled up.
 
-Uninstall deletes the rules named "Xeneon HW Monitor Host", "Xeneon HW Monitor Host TCP", and "Xeneon HW Monitor Host UDP".
+Discovery still carries no token. The Pi reconnects with the token it already stored.

@@ -1,6 +1,8 @@
 # Xeneon HW Monitor Host installer
 
-Product name: **Xeneon HW Monitor Host**. Version **0.2.0**. The setup file is unsigned. Windows SmartScreen can warn. This project does not disable Defender, SmartScreen, or driver signature checks, and it does not install PawnIO.
+Product name: **Xeneon HW Monitor Host**. Version **0.3.0**. The setup file is unsigned. Windows SmartScreen can warn. This project does not disable Defender, SmartScreen, or driver signature checks, and it does not install PawnIO.
+
+Publish a GitHub release tagged `host-vX.Y.Z`. The asset is `XeneonHwMonitorHost-X.Y.Z-win-x64.exe`. Put `SHA-256:` and 64 hex digits in the release notes, or attach `XeneonHwMonitorHost-X.Y.Z-win-x64.exe.sha256`. The updater on a machine that already has 0.3.0 downloads that asset, checks the size and the hash, and runs it with `/S`. It does not install by itself. 0.2.0 has no updater, so 0.2.0 to 0.3.0 is still a manual run of the setup file. `.github/workflows/host-release.yml` builds that file on a `host-v*` tag.
 
 Build on a machine with the .NET 10 SDK and NSIS:
 

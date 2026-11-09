@@ -1,7 +1,9 @@
 ; Xeneon HW Monitor Host installer.
-; Copies a self-contained win-x64 build. Does not install PawnIO, does not
-; edit Fan Control, and does not change the firewall or Windows security.
-; The service section is unchecked. This file never passes a shutdown config.
+; Copies a self-contained win-x64 build over an existing install.
+; It does not uninstall first, so settings and pairing tokens stay.
+; It does not install PawnIO and it does not edit Fan Control.
+; Firewall rules and the logon task are applied every time. The optional
+; service section stays unchecked and does not arm Pi poweroff.
 ; Uninstall uses sc stop, which is SERVICE_CONTROL_STOP, not preshutdown,
 ; and it leaves the ProgramData directory in place.
 
@@ -16,7 +18,7 @@ Target amd64-unicode
 !include "FileFunc.nsh"
 
 !define PRODUCT_NAME "Xeneon HW Monitor Host"
-!define PRODUCT_VERSION "0.2.0"
+!define PRODUCT_VERSION "0.3.0"
 !define PRODUCT_PUBLISHER "Xeneon"
 !define APP_GUID "{7C2E9A10-4B6D-4E2A-8F31-0A6B5C4D3E21}"
 !ifndef PAYLOAD
@@ -31,10 +33,10 @@ RequestExecutionLevel admin
 Unicode true
 SetCompressor /SOLID lzma
 
-VIProductVersion "0.2.0.0"
+VIProductVersion "0.3.0.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
-VIAddVersionKey "FileVersion" "0.2.0.0"
+VIAddVersionKey "FileVersion" "0.3.0.0"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} setup"
 VIAddVersionKey "LegalCopyright" "Xeneon"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
@@ -64,6 +66,9 @@ FunctionEnd
 Section "Xeneon HW Monitor Host" SEC_MAIN
   SectionIn RO
   Call SetDataDir
+  ; The updater has already exited. This catches a window that is still open.
+  nsExec::ExecToLog 'taskkill /IM XeneonHwMonitor.exe /F'
+  Sleep 400
   SetOutPath "$INSTDIR"
   File /r "${PAYLOAD}\*.*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -97,6 +102,12 @@ Section "Xeneon HW Monitor Host" SEC_MAIN
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Configuration.lnk" "$WINDIR\explorer.exe" "$DataDir\config"
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Logs.lnk" "$WINDIR\explorer.exe" "$DataDir\logs"
   CreateShortcut "$SMPROGRAMS\Xeneon HW Monitor Host\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
+
+  ; Idempotent. Private and Domain, this exe, local subnet. Public is not opened.
+  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Repair-PrivateFirewall.ps1" -Program "$INSTDIR\XeneonHwMonitor.exe"'
+  IfFileExists "$DataDir\config\start-with-windows.off" skip_task
+    nsExec::ExecToLog '"$INSTDIR\XeneonHwMonitor.exe" --install-logon-task'
+  skip_task:
 SectionEnd
 
 Section /o "Windows service, manual start, Pi poweroff not armed" SEC_SVC
@@ -110,12 +121,6 @@ Section /o "Windows service, manual start, Pi poweroff not armed" SEC_SVC
   nsExec::ExecToLog 'sc.exe description XeneonTelemetryHost "Read-only telemetry host. Pi poweroff is a separate opt-in."'
 SectionEnd
 
-Section /o "Private-network firewall rules for this app" SEC_FW
-  ; Unchecked until the user opts in. The script allows Private + local subnet only.
-  ; It does not enable a Public rule and it does not turn the firewall off.
-  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Repair-PrivateFirewall.ps1"'
-SectionEnd
-
 Function .onInit
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "This build is 64-bit only."
@@ -126,18 +131,23 @@ Function .onInit
   IfFileExists "$DataDir\service.opted-in" 0 no_marker
     StrCpy $KeepService "1"
   no_marker:
-  ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}" "UninstallString"
-  ${If} $0 != ""
-    ExecWait '$0 /S _?=$INSTDIR'
-  ${EndIf}
+  ; Do not uninstall first. The same product GUID is overwritten in place.
   ${If} $KeepService == "1"
     SectionSetFlags ${SEC_SVC} ${SF_SELECTED}
   ${EndIf}
 FunctionEnd
 
+Function .onInstSuccess
+  IfSilent 0 not_silent
+    Exec '"$INSTDIR\XeneonHwMonitor.exe"'
+  not_silent:
+FunctionEnd
+
 Section "un.Full"
   Call un.SetDataDir
   nsExec::ExecToLog 'taskkill /IM XeneonHwMonitor.exe /F'
+  nsExec::ExecToLog 'schtasks /Delete /F /TN "Xeneon HW Monitor Host"'
+  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Repair-PrivateFirewall.ps1" -RemoveOnly'
   nsExec::ExecToLog 'sc.exe stop XeneonTelemetryHost'
   Sleep 500
   nsExec::ExecToLog 'sc.exe delete XeneonTelemetryHost'
@@ -202,7 +212,6 @@ Function un.SetDataDir
 FunctionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "Self-contained host, shortcuts, and example config. Does not start a service or open a port."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} "Self-contained host, shortcuts, firewall rules, and the logon task. Does not start the optional service."
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_SVC} "Optional. Registers a manual service with no Pi shutdown config and does not start it."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_FW} "Optional. Private profile and local subnet only: inbound TCP for the telemetry port and inbound UDP for discovery. Public is not opened. The firewall stays on. Leave unchecked and use the repair script later if you change the port."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END

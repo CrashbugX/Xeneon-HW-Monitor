@@ -13,7 +13,10 @@ FIREWALL = Path(__file__).with_name("FIREWALL.txt").read_text(encoding="utf-8")
 class LayoutRules(unittest.TestCase):
     def test_product_identity_and_opt_in_sections(self):
         self.assertIn('!define PRODUCT_NAME "Xeneon HW Monitor Host"', NSI)
-        self.assertIn('!define PRODUCT_VERSION "0.2.0"', NSI)
+        self.assertIn('!define PRODUCT_VERSION "0.3.0"', NSI)
+        self.assertIn("--install-logon-task", NSI)
+        self.assertIn("schtasks", NSI)
+        self.assertNotIn("CurrentVersion\\Run", NSI)
         self.assertIn("XeneonHwMonitor.exe", NSI)
         self.assertIn("Repair-PrivateFirewall.ps1", NSI)
         self.assertNotIn("localport=8765", NSI)
