@@ -49,6 +49,10 @@ async function refreshView() {
       return;
     }
     view = await response.json();
+    if (view.moduleOrder) {
+      moduleOrder = view.moduleOrder.slice();
+      applyModuleOrder();
+    }
     if (view.theme === "day" || view.theme === "night") {
       document.documentElement.dataset.theme = view.theme;
       const themeButton = document.getElementById("gear-theme");
@@ -123,8 +127,21 @@ function paintModules() {
 
 /** Set the header band from link or demo. Demo is never inferred from a failed poll. */
 function paintBanner() {
-  banner.textContent = view.banner;
-  banner.className = "banner " + (view.demo ? "demo" : view.link);
+  const preview = new URLSearchParams(location.search).get("preview");
+  const link = preview === "disconnected" ? "disconnected" : view.link;
+  if (view.demo && preview !== "disconnected") {
+    banner.hidden = false;
+    banner.textContent = view.banner;
+    banner.className = "banner demo";
+    return;
+  }
+  if (link === "live") {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.textContent = link === "unauthorized" ? "Disconnected from PC · the token was refused" : "Disconnected from PC";
+  banner.className = "banner disconnected";
 }
 
 /** Wi-Fi block. Unavailable stays explicit. */
@@ -204,26 +221,32 @@ function historyStats(history) {
  */
 function drawGraph(canvas, history, color) {
   const ctx = canvas.getContext("2d");
+  const low = 30;
+  const high = 95;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#242932";
+  const day = document.documentElement.dataset.theme === "day";
+  ctx.strokeStyle = day ? "#8ea0b8" : "#9aa6b4";
+  ctx.fillStyle = day ? "#10141c" : "#eef3f8";
   ctx.lineWidth = 1;
-  for (const tick of [40, 105, 170]) {
+  ctx.font = "bold 15px sans-serif";
+  [95, 60, 30].forEach(function (mark) {
+    const y = canvas.height - 18 - ((mark - low) / (high - low)) * (canvas.height - 36);
     ctx.beginPath();
-    ctx.moveTo(0, tick);
-    ctx.lineTo(canvas.width - 36, tick);
+    ctx.moveTo(42, y);
+    ctx.lineTo(canvas.width - 8, y);
     ctx.stroke();
-  }
+    ctx.fillText(String(mark) + "°", 2, y + 5);
+  });
   if (!history || history.length < 2) {
     return;
   }
-  const low = 50;
-  const high = 90;
   ctx.beginPath();
   ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = document.documentElement.dataset.theme === "day" ? 4 : 3;
   history.forEach((value, index) => {
-    const x = (index / (history.length - 1)) * (canvas.width - 48);
-    const y = canvas.height - 20 - ((value - low) / (high - low)) * (canvas.height - 40);
+    const clamped = Math.max(low, Math.min(high, value));
+    const x = 42 + (index / (history.length - 1)) * (canvas.width - 54);
+    const y = canvas.height - 18 - ((clamped - low) / (high - low)) * (canvas.height - 36);
     if (index === 0) {
       ctx.moveTo(x, y);
     } else {
@@ -235,6 +258,10 @@ function drawGraph(canvas, history, color) {
 
 /** @param {string} level */
 function levelColor(level) {
+  /* Day uses deeper saturated inks so the line stays vivid on a white card. */
+  if (document.documentElement.dataset.theme === "day") {
+    return { green: "#00a63e", yellow: "#e6a100", orange: "#f25c00", red: "#e10600" }[level] || "#2c3a4d";
+  }
   return { green: "#54de7c", yellow: "#f6d434", orange: "#ff8c1a", red: "#ff3a3a" }[level] || "#808996";
 }
 
@@ -382,83 +409,97 @@ function paintCases() {
  */
 function paintSpotify() {
   const root = document.getElementById("spotify");
-  const spot = view.spotify || {};
+  let spot = view.spotify || {};
+  if (new URLSearchParams(location.search).get("preview") === "paused") {
+    spot = Object.assign({}, spot, { playing: false, shuffle: "off", repeat: "off" });
+  }
+  const playing = !!spot.playing && (view.demo || spot.connected);
   root.innerHTML = "";
-  root.className = "panel pad";
-  const head = el("div", "spot-head");
-  head.append(el("div", "kicker", "SPOTIFY / NOW PLAYING"));
-  const macros = el("button", "macros", "MACROS ›");
-  macros.disabled = true;
-  macros.title = "Macros are not in this version.";
-  head.append(macros);
-  root.append(head);
-  if (!view.demo && spot.connected && spot.playing) {
-    const now = el("div", "now");
-    if (spot.art) {
-      const image = document.createElement("img");
-      image.className = "art";
-      image.alt = "";
-      image.src = spot.art;
-      now.append(image);
-    } else {
-      now.append(el("div", "art", ""));
-    }
-    const meta = el("div", "");
-    meta.append(el("div", "track", spot.title || ""));
-    meta.append(el("div", "sub", spot.artist || ""));
-    now.append(meta);
-    root.append(now);
-  } else if (!view.demo && spot.connected && !spot.playing) {
-    const box = el("div", "paused-box");
-    box.append(el("div", "track", "Nothing playing"));
-    box.append(el("div", "sub", "Paused"));
-    root.append(box);
-  } else if (!view.demo) {
-    const box = el("div", "paused-box");
-    box.append(el("div", "track", "Not connected"));
-    box.append(el("div", "sub", spot.detail || "Connect Spotify in Setup. This page does not ask for your password."));
-    root.append(box);
-  } else if (spot.playing) {
-    const now = el("div", "now");
-    now.append(el("div", "art", ""));
-    const meta = el("div", "");
-    meta.append(el("div", "sub", "EXAMPLE TRACK"));
-    meta.append(el("div", "track", spot.title || ""));
-    meta.append(el("div", "sub", spot.artist || ""));
-    meta.append(el("div", "sub", "not connected to Spotify"));
-    now.append(meta);
-    root.append(now);
+  root.className = "panel aa";
+  const bg = el("div", "aa-bg");
+  const shade = el("div", "aa-shade");
+  if (playing && spot.art) {
+    const src = String(spot.art).charAt(0) === "/" ? spot.art : ("/art?u=" + encodeURIComponent(spot.art));
+    bg.style.backgroundImage = "url(\"" + src + "\")";
+    tintFromArt(root, src);
   } else {
-    const box = el("div", "paused-box");
-    box.append(el("div", "track", "Nothing playing"));
-    box.append(el("div", "sub", "Paused"));
-    root.append(box);
+    bg.style.background = "linear-gradient(165deg, #2a3544 0%, #151b24 55%, #10141a 100%)";
   }
-  const controls = el("div", "controls");
+  root.append(bg);
+  root.append(shade);
+  const body = el("div", "aa-body");
+  body.append(spotifyMark());
+  if (!playing) {
+    body.append(el("div", "aa-title", view.demo || spot.connected ? "Nothing playing" : "Not connected"));
+    body.append(el("div", "aa-artist", view.demo || spot.connected ? "Spotify is idle" : (spot.detail || "Connect Spotify in Setup.")));
+  } else {
+    body.append(el("div", "aa-title", spot.title || "Unknown title"));
+    body.append(el("div", "aa-artist", spot.artist || ""));
+    const progress = el("div", "aa-progress");
+    const fill = document.createElement("span");
+    const ratio = spot.duration ? Math.max(0, Math.min(1, (spot.position || 0) / spot.duration)) : 0;
+    fill.style.width = (ratio * 100) + "%";
+    progress.append(fill);
+    body.append(progress);
+  }
   const live = !view.demo && spot.connected;
-  controls.append(iconButton("Previous track", live && !!spot.canSkip, live ? "previous" : null, iconPrevious()));
-  let playLabel = "Play";
-  let playAction = null;
-  let playIcon = iconPlay();
-  if ((view.demo && spot.playing) || (live && spot.canPause)) {
-    playLabel = "Pause";
-    playAction = "pause";
-    playIcon = iconPause();
-  } else if ((view.demo && !spot.playing) || (live && spot.canPlay)) {
-    playLabel = "Play";
-    playAction = "play";
-    playIcon = iconPlay();
-  }
-  controls.append(iconButton(playLabel, view.demo || (live && (spot.canPause || spot.canPlay)), playAction, playIcon));
-  controls.append(iconButton("Next track", live && !!spot.canSkip, live ? "next" : null, iconNext()));
-  root.append(controls);
-  const toggles = el("div", "toggles");
+  const skipOn = view.demo || (live && !!spot.canSkip);
+  const main = el("div", "aa-main");
+  main.append(aaButton("Previous track", skipOn, live && spot.canSkip ? "previous" : null, iconPrevious(), false, "aa-skip"));
+  const showPause = (view.demo && playing) || (live && spot.canPause);
+  main.append(aaButton(showPause ? "Pause" : "Play", view.demo || (live && (spot.canPause || spot.canPlay)), showPause ? "pause" : ((view.demo || (live && spot.canPlay)) ? "play" : null), showPause ? iconPause() : iconPlay(), false, "aa-play"));
+  main.append(aaButton("Next track", skipOn, live && spot.canSkip ? "next" : null, iconNext(), false, "aa-skip"));
+  body.append(main);
+  const side = el("div", "aa-side");
   const shuffleOn = spot.shuffle === "on";
-  toggles.append(iconButton(shuffleOn ? "Shuffle on" : "Shuffle off", view.demo || (live && !!spot.canShuffle), view.demo || live ? "shuffle" : null, iconShuffle(), shuffleOn));
+  side.append(aaButton(shuffleOn ? "Shuffle on" : "Shuffle off", view.demo || (live && !!spot.canShuffle), (view.demo || live) ? "shuffle" : null, iconShuffle(), shuffleOn, ""));
   const repeat = spot.repeat || "off";
   const repeatLabel = repeat === "one" ? "Repeat one" : (repeat === "all" ? "Repeat all" : "Repeat off");
-  toggles.append(iconButton(repeatLabel, view.demo || (live && !!spot.canRepeat), view.demo || live ? "repeat" : null, iconRepeat(repeat), repeat !== "off"));
-  root.append(toggles);
+  side.append(aaButton(repeatLabel, view.demo || (live && !!spot.canRepeat), (view.demo || live) ? "repeat" : null, iconRepeat(repeat), repeat !== "off", ""));
+  body.append(side);
+  root.append(body);
+}
+
+function aaButton(label, enabled, action, svg, active, extra) {
+  const button = iconButton(label, enabled, action, svg, active);
+  if (extra) {
+    button.className += " " + extra;
+  }
+  return button;
+}
+
+function spotifyMark() {
+  const mark = el("div", "aa-logo");
+  mark.innerHTML = "<svg viewBox=\"0 0 24 24\" role=\"img\" aria-label=\"Spotify\"><circle cx=\"12\" cy=\"12\" r=\"12\" fill=\"#1DB954\"/>" +
+    "<path fill=\"#191414\" d=\"M17.4 16.3a.55.55 0 0 1-.76.18c-2.1-1.28-4.75-1.57-7.86-.86a.55.55 0 1 1-.24-1.07c3.4-.78 6.32-.44 8.68.97.24.14.32.45.18.78zm1-2.4a.7.7 0 0 1-.96.23c-2.4-1.48-6.06-1.91-8.9-1.04a.7.7 0 0 1-.4-1.34c3.26-1 7.36-.5 10.03 1.2.3.18.4.58.23.95zm.1-2.5c-2.9-1.72-7.7-1.88-10.47-1.04a.84.84 0 1 1-.48-1.61c3.2-.96 8.52-.77 11.88 1.2a.84.84 0 0 1-.93 1.45z\"/></svg>";
+  return mark;
+}
+
+function tintFromArt(root, src) {
+  const image = new Image();
+  image.onload = function () {
+    try {
+      const sample = document.createElement("canvas");
+      sample.width = 4;
+      sample.height = 4;
+      const ctx = sample.getContext("2d");
+      ctx.drawImage(image, 0, 0, 4, 4);
+      const data = ctx.getImageData(0, 0, 4, 4).data;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      const pixels = data.length / 4;
+      for (let i = 0; i < data.length; i += 4) {
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+      }
+      root.style.background = "rgb(" + Math.round(r / pixels * 0.45) + "," + Math.round(g / pixels * 0.45) + "," + Math.round(b / pixels * 0.45) + ")";
+    } catch (_error) {
+      /* A tainted canvas leaves the darkened fallback. */
+    }
+  };
+  image.src = src;
 }
 
 function iconButton(label, enabled, action, svg, active) {
@@ -560,6 +601,21 @@ async function paintSetup() {
     themeButton.textContent = payload.theme === "day" ? "Use night mode" : "Use day mode";
   }
   paintFans(payload.fans || []);
+  const account = document.getElementById("spotify-account");
+  const connect = document.getElementById("setup-spotify");
+  const logout = document.getElementById("setup-spotify-out");
+  if (account && connect && logout) {
+    if (payload.spotifyConnected) {
+      account.textContent = payload.spotifyAccount ? ("Connected as " + payload.spotifyAccount) : "Connected.";
+      connect.hidden = true;
+      logout.hidden = false;
+    } else {
+      account.textContent = "Not connected.";
+      connect.hidden = false;
+      logout.hidden = true;
+    }
+  }
+  paintLayout(payload.modules || {}, payload.moduleOrder || []);
   document.getElementById("setup-status").textContent = payload.demo
     ? "Demo is on. Pairing and Spotify login stay available, and demo numbers stay labelled."
     : (payload.paired ? "Paired with " + (payload.hostUrl || "the host") + "." : "Not paired yet.");
@@ -654,11 +710,7 @@ async function logoutSpotify() {
 
 /** Footer explains that colors are display thresholds, not safety limits. */
 function paintFooter() {
-  const rise = (view.thresholds && view.thresholds.rise || []).join(" / ");
-  const fall = (view.thresholds && view.thresholds.fall || []).join(" / ");
-  footer.textContent = (view.demo ? "DEMO · " : "") +
-    "60 fps drawing · host samples near 1 Hz · display thresholds rise " + rise +
-    " °C, cool " + fall + " °C · not safety limits · missing fans stay blank";
+  /* The bottom-left status line was removed. Thresholds stay in the code, not on the stage. */
 }
 
 /**
@@ -695,8 +747,10 @@ function paintWindowControls() {
   const locked = controlsLocked || windowState.pending;
   const toggle = document.getElementById("gear-window");
   if (toggle) {
-    toggle.textContent = windowState.label || "Fullscreen";
-    toggle.disabled = locked || !windowState.enabled || !windowState.action;
+    const full = !!document.fullscreenElement;
+    toggle.textContent = locked ? "Switching…" : (full ? "Exit fullscreen" : "Fullscreen");
+    toggle.disabled = locked;
+    toggle.dataset.action = full ? "windowed" : "fullscreen";
   }
   const close = document.getElementById("gear-close");
   if (close) {
@@ -758,30 +812,220 @@ async function windowAction(action) {
   if (controlsLocked || windowState.pending || postInFlight) {
     return;
   }
-  if (action !== "close" && !windowState.enabled) {
+  if (action === "close") {
+    if (!windowState.closeEnabled) {
+      return;
+    }
+    postInFlight = true;
+    controlsLocked = true;
+    windowState.pending = true;
+    windowState.label = "Switching…";
+    paintWindowControls();
+    try {
+      const payload = await postWindow(action);
+      if (payload && payload.detail) {
+        windowState.detail = payload.detail;
+        paintWindowControls();
+      }
+    } catch (_error) {
+      windowState.detail = "The launcher did not answer. The buttons stay off until the current change finishes or times out.";
+      paintWindowControls();
+    } finally {
+      postInFlight = false;
+    }
+    await waitForLauncher();
     return;
   }
-  if (action === "close" && !windowState.closeEnabled) {
-    return;
-  }
-  postInFlight = true;
   controlsLocked = true;
-  windowState.pending = true;
   windowState.label = "Switching…";
   paintWindowControls();
+  const wantFull = action === "fullscreen";
+  let changed = false;
   try {
-    const payload = await postWindow(action);
-    if (payload && payload.detail) {
-      windowState.detail = payload.detail;
-      paintWindowControls();
+    if (wantFull) {
+      await document.documentElement.requestFullscreen();
+    } else if (document.fullscreenElement) {
+      await document.exitFullscreen();
     }
   } catch (_error) {
-    windowState.detail = "The launcher did not answer. The buttons stay off until the current change finishes or times out.";
-    paintWindowControls();
-  } finally {
-    postInFlight = false;
+    changed = false;
   }
-  await waitForLauncher();
+  await new Promise(function (resolve) { setTimeout(resolve, 400); });
+  changed = !!document.fullscreenElement === wantFull;
+  if (!changed) {
+    try {
+      const payload = await postWindowFallback(action);
+      if (payload && payload.detail) {
+        windowState.detail = payload.detail;
+      }
+    } catch (_error) {
+      windowState.detail = "The fullscreen fallback did not answer.";
+    }
+    await new Promise(function (resolve) { setTimeout(resolve, 800); });
+    changed = !!document.fullscreenElement === wantFull;
+  } else {
+    postWindowFallback(action, false);
+  }
+  controlsLocked = false;
+  windowState.pending = false;
+  windowState.label = wantFull && changed ? "Exit fullscreen" : "Fullscreen";
+  windowState.action = wantFull && changed ? "windowed" : "fullscreen";
+  windowState.enabled = true;
+  if (!changed) {
+    windowState.detail = (windowState.detail || "") + " The window did not change. Chromium was not relaunched. See window.log on the Pi.";
+  }
+  paintWindowControls();
+}
+
+async function postWindowFallback(action, needsFallback) {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  const response = await fetch("/api/window", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify({ action: action, needsFallback: needsFallback !== false })
+  });
+  return response.json();
+}
+
+const MODULES = [["cpu", "CPU"], ["gpu", "GPU"], ["load", "Load"], ["memory", "Memory"], ["fans", "Fans"], ["spotify", "Spotify"]];
+let moduleOrder = MODULES.map(function (item) { return item[0]; });
+
+function paintLayout(modules, order) {
+  const board = document.getElementById("layout-board");
+  if (!board) {
+    return;
+  }
+  const known = MODULES.map(function (item) { return item[0]; });
+  moduleOrder = (order || []).filter(function (id) { return known.indexOf(id) >= 0; });
+  known.forEach(function (id) {
+    if (moduleOrder.indexOf(id) < 0 && (!modules || modules[id] !== false)) {
+      moduleOrder.push(id);
+    }
+  });
+  board.replaceChildren();
+  moduleOrder.forEach(function (id) {
+    if (modules && modules[id] === false) {
+      return;
+    }
+    const row = el("div", "layout-item");
+    row.dataset.id = id;
+    const named = MODULES.filter(function (item) { return item[0] === id; })[0];
+    const label = el("span", "");
+    label.append(el("span", "grip", "⋮⋮"));
+    label.append(document.createTextNode(named ? named[1] : id));
+    row.append(label);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", function (event) {
+      event.stopPropagation();
+      setModule(id, false);
+    });
+    row.append(remove);
+    row.addEventListener("pointerdown", layoutPointerDown);
+    board.append(row);
+  });
+  const hidden = document.getElementById("layout-hidden");
+  const hiddenPairs = MODULES.filter(function (pair) { return modules && modules[pair[0]] === false; });
+  if (hidden) {
+    hidden.replaceChildren();
+    hiddenPairs.forEach(function (pair) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.textContent = "Add " + pair[1];
+      add.addEventListener("click", function () { setModule(pair[0], true); });
+      hidden.append(add);
+    });
+  }
+  const addButton = document.getElementById("layout-add");
+  if (addButton) {
+    addButton.disabled = hiddenPairs.length === 0;
+    addButton.textContent = hiddenPairs.length ? "Add module" : "All modules are on the board";
+    addButton.onclick = function () {
+      if (hiddenPairs.length === 1) {
+        setModule(hiddenPairs[0][0], true);
+      } else if (hidden) {
+        hidden.scrollIntoView({ block: "nearest" });
+      }
+    };
+  }
+  applyModuleOrder();
+}
+
+function layoutPointerDown(event) {
+  if (event.target.closest("button")) {
+    return;
+  }
+  const row = event.currentTarget;
+  row.setPointerCapture(event.pointerId);
+  row.classList.add("drag");
+  function move(ev) {
+    const board = row.parentElement;
+    const items = Array.prototype.slice.call(board.children);
+    const index = items.indexOf(row);
+    const previous = items[index - 1];
+    const next = items[index + 1];
+    if (previous && ev.clientY < previous.getBoundingClientRect().top + previous.offsetHeight / 2) {
+      board.insertBefore(row, previous);
+    } else if (next && ev.clientY > next.getBoundingClientRect().top + next.offsetHeight / 2) {
+      board.insertBefore(next, row);
+    }
+  }
+  function up() {
+    row.classList.remove("drag");
+    row.removeEventListener("pointermove", move);
+    row.removeEventListener("pointerup", up);
+    moduleOrder = Array.prototype.map.call(row.parentElement.children, function (item) { return item.dataset.id; });
+    applyModuleOrder();
+    postSetup("/api/setup/layout", { order: moduleOrder, modules: currentModules() });
+  }
+  row.addEventListener("pointermove", move);
+  row.addEventListener("pointerup", up);
+}
+
+function currentModules() {
+  const modules = {};
+  MODULES.forEach(function (pair) {
+    modules[pair[0]] = moduleOrder.indexOf(pair[0]) >= 0;
+  });
+  return modules;
+}
+
+function setModule(id, on) {
+  if (on && moduleOrder.indexOf(id) < 0) {
+    moduleOrder.push(id);
+  }
+  if (!on) {
+    moduleOrder = moduleOrder.filter(function (item) { return item !== id; });
+  }
+  const modules = currentModules();
+  if (!on) {
+    modules[id] = false;
+  }
+  postSetup("/api/setup/layout", { order: moduleOrder, modules: modules }).then(paintSetup);
+}
+
+function applyModuleOrder() {
+  const defaults = MODULES.map(function (item) { return item[0]; });
+  stage.classList.toggle("custom-order", moduleOrder.join() !== defaults.join());
+  const map = { memory: "stats", fans: "cases", load: "load" };
+  moduleOrder.forEach(function (id, index) {
+    const node = document.getElementById(map[id] || id);
+    if (node) {
+      node.style.order = String(index);
+      node.hidden = false;
+    }
+  });
+  MODULES.forEach(function (pair) {
+    if (moduleOrder.indexOf(pair[0]) < 0) {
+      const node = document.getElementById(map[pair[0]] || pair[0]);
+      if (node) {
+        node.hidden = true;
+      }
+    }
+  });
 }
 
 function paintFans(fans) {
@@ -873,10 +1117,8 @@ document.getElementById("gear").addEventListener("click", function () {
   document.getElementById("gear").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
 });
 document.getElementById("gear-window").addEventListener("click", function () {
-  if (!windowState.action) {
-    return;
-  }
-  windowAction(windowState.action);
+  const toggle = document.getElementById("gear-window");
+  windowAction(toggle.dataset.action || "fullscreen");
 });
 document.getElementById("gear-close").addEventListener("click", function () { windowAction("close"); });
 document.getElementById("gear-setup").addEventListener("click", function () {
@@ -887,13 +1129,33 @@ document.getElementById("gear-theme").addEventListener("click", toggleTheme);
 document.getElementById("osk").addEventListener("click", toggleKeyboard);
 refreshWindow();
 setInterval(refreshWindow, 1000);
-document.getElementById("setup-close").addEventListener("click", () => {
-  document.getElementById("setup").hidden = true;
+document.getElementById("setup").addEventListener("click", function (event) {
+  if (event.target.id === "setup") {
+    document.getElementById("setup").hidden = true;
+  }
+});
+document.getElementById("setup-use-manual").addEventListener("click", function () {
+  const address = document.getElementById("setup-manual").value.trim();
+  const port = document.getElementById("setup-port").value.trim() || "8765";
+  if (!address) {
+    return;
+  }
+  document.getElementById("setup-address").value = "http://" + address + ":" + port;
+});
+document.querySelectorAll("[data-host-tab]").forEach(function (button) {
+  button.addEventListener("click", function () {
+    const tab = button.getAttribute("data-host-tab");
+    document.querySelectorAll("[data-host-tab]").forEach(function (item) {
+      item.setAttribute("aria-selected", item === button ? "true" : "false");
+    });
+    document.querySelectorAll("[data-host-panel]").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-host-panel") !== tab;
+    });
+  });
 });
 document.getElementById("setup-discover").addEventListener("click", discoverHosts);
 document.getElementById("setup-request").addEventListener("click", requestPairing);
 document.getElementById("setup-pair").addEventListener("click", pairHost);
-document.getElementById("setup-layout").addEventListener("click", saveLayout);
 document.getElementById("setup-spotify").addEventListener("click", connectSpotify);
 const saveClientId = document.getElementById("setup-save-id");
 if (saveClientId) {
@@ -903,6 +1165,9 @@ document.getElementById("setup-spotify-out").addEventListener("click", logoutSpo
 document.querySelectorAll("#setup nav button").forEach((button) => {
   button.addEventListener("click", () => {
     const tab = button.getAttribute("data-tab");
+    document.querySelectorAll("#setup nav button").forEach(function (item) {
+      item.setAttribute("aria-selected", item === button ? "true" : "false");
+    });
     document.querySelectorAll("#setup [data-panel]").forEach((panel) => {
       panel.hidden = panel.getAttribute("data-panel") !== tab;
     });
@@ -918,8 +1183,18 @@ if (location.search.indexOf("setup=1") >= 0) {
   openSetup();
   const tab = new URLSearchParams(location.search).get("tab");
   if (tab) {
+    document.querySelectorAll("#setup nav button").forEach(function (item) {
+      item.setAttribute("aria-selected", item.getAttribute("data-tab") === tab ? "true" : "false");
+    });
     document.querySelectorAll("#setup [data-panel]").forEach((panel) => {
       panel.hidden = panel.getAttribute("data-panel") !== tab;
     });
+  }
+  const hostTab = new URLSearchParams(location.search).get("host");
+  if (hostTab) {
+    const button = document.querySelector("[data-host-tab=\"" + hostTab + "\"]");
+    if (button) {
+      button.click();
+    }
   }
 }
