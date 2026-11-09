@@ -1,29 +1,41 @@
-# Client 0.2.2
+# Client 0.3.0
 
-Delta against client 0.2.1. The Windows host and its installer are unchanged.
+Against the published Pi client 0.2.2. The Windows host stays 0.2.0. No new installer.
+
+Unpublished 0.2.3 is included: Request code says the PC did not answer, and names the selected-host URL, instead of the raw word `pair_begin`.
 
 ## New
 
-None.
+- `client/xeneon/fans.py` — fan list, roles, observed range
+- `client/xeneon/keyboard.py` — local on-screen keyboard toggle
+- `client/scripts/keyboard-packages.sh` — documents `wvkbd`; does not run on install
+- `client/tests/test_pairing.py` — begin errors and the host begin JSON
+- `client/tests/test_fans_gpu.py` — GPU Core fallback, fan limits, theme, keyboard action
 
 ## Changed
 
-- `client/xeneon/kioskctl.py` — one window transition at a time, acknowledged only when the owned launcher is in that mode
-- `client/scripts/kiosk.sh` — adopt a window whose starter process already exited, instead of opening another
-- `client/xeneon/bridge.py` — `GET /api/window` reports that launcher state
-- `client/xeneon/static/index.html` — one fullscreen toggle, Close dashboard separated
-- `client/xeneon/static/app.js` — buttons stay off until the launcher ack, including after a reload
-- `client/xeneon/static/app.css` — gap before Close dashboard, including a narrow row
-- `client/xeneon/__init__.py` — client version 0.2.2
-- `client/tests/test_kiosk.py` — repeated clicks, pending ack, labels, and the extra-window loop
-- `client/README.md` — launcher note
-- `docs/ONBOARDING.md` — Pi controls
-- `CHANGES.md` — this file
+- `client/xeneon/kioskctl.py` — one owned window; a Chromium handoff exit is not another launch
+- `client/scripts/kiosk.sh` — the supervisor calls that one attempt, then waits
+- `client/xeneon/session.py` — GPU temperature can come from one inventory GPU Core when the role is empty
+- `client/xeneon/setupflow.py` — theme, fan prefs, pairing failure text
+- `client/xeneon/bridge.py` — theme, fan board, keyboard route
+- `client/xeneon/static/index.html` — gear menu, fan tab, no top button bar
+- `client/xeneon/static/app.css` — day theme, gear, keyboard button
+- `client/xeneon/static/app.js` — gear, icons, fans, theme, keyboard
+- `client/xeneon/__init__.py` — 0.3.0
+- `client/README.md`
+- `client/tests/test_kiosk.py` — handoff does not spawn twice
+- `docs/ONBOARDING.md`
+- `CHANGES.md`
 
 ## Deleted
 
 None.
 
-## Behavior
+## Host
 
-Fullscreen while the owned window is already fullscreen does not launch another Chromium. A starter process that exits and leaves the dashboard window open is adopted. Further clicks, including from an older tab, do not queue another launch while that change is unfinished. The toggle and Close dashboard stay disabled until the launcher records the mode it actually started, or until that change times out and the last started mode is kept. The button says **Exit fullscreen** after a fullscreen ack and **Fullscreen** after a windowed ack.
+No host change. GPU Core is already in the 0.2.0 inventory when the semantic role is empty. Fan sensors are already in that inventory. Pairing HTTP to a 0.2.0 listener still begins, approves, and stores a token.
+
+## Not tested on the Pi or the Windows PC
+
+Labwc, Wayland, and the real Chromium package on the Pi were not run. A Chrome build here exits a second launch with "Opening in existing browser session" and leaves the first window. This machine's Chrome wrapper also injects another profile directory, so that wrapper is not treated as the owned window. A sensor-poll failure that stops the listener was reproduced only in a local listener process, and it was not the cause of the earlier empty port: the host window had been closed.
