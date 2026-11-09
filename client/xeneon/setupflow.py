@@ -28,6 +28,8 @@ class SetupFlow:
         self.paired_name = ""
         self.saved_host = ""
         self.module_order = ["cpu", "gpu", "load", "memory", "fans", "spotify"]
+        self.pi_shutdown = True
+        self.control_port = 8766
         self._pairing_id = ""
         self._load()
 
@@ -43,6 +45,13 @@ class SetupFlow:
                 if found:
                     self.hosts.append(found)
             return 200, {"ok": True, "hosts": self.hosts}
+        if path == "/api/setup/pi-shutdown":
+            self.pi_shutdown = bool(body.get("enabled", True))
+            self._save()
+            control = getattr(bridge, "control", None) if bridge is not None else None
+            if control is not None:
+                control.enabled = self.pi_shutdown
+            return 200, {"ok": True, "piShutdown": self.pi_shutdown}
         if path == "/api/setup/pair":
             return self._pair(body, bridge)
         if path == "/api/setup/layout":
@@ -163,13 +172,23 @@ class SetupFlow:
                 matched = str(host.get("name") or "")
         self._pairing_id = ""
         self.remember_host(base, matched)
+        if self.pi_shutdown:
+            from xeneon.shutdownlink import announce, ensure_token, host_ip
+            shutdown = ensure_token(self.shutdown_path())
+            announce(base, token, self.control_port, shutdown)
+            if bridge is not None and getattr(bridge, "control", None) is not None:
+                bridge.control.restrict_host = host_ip(base)
+                bridge.shutdown_token = shutdown
+        return 200, {"ok": True, "step": "paired"}
+
+    def shutdown_path(self) -> Path:
+        return self.config_path.parent / "shutdown.token"
 
     def remember_host(self, base: str, name: str = "") -> None:
         self.saved_host = base
         if name:
             self.paired_name = name
         self._save()
-        return 200, {"ok": True, "step": "paired"}
 
     def _load(self) -> None:
         if not self.config_path.exists():
@@ -191,6 +210,10 @@ class SetupFlow:
         self.fan_prefs = prefs if isinstance(prefs, dict) else {}
         self.paired_name = str(loaded.get("pairedName") or "")
         self.saved_host = str(loaded.get("hostUrl") or "")
+        if "piShutdown" in loaded:
+            self.pi_shutdown = bool(loaded.get("piShutdown"))
+        if loaded.get("controlPort"):
+            self.control_port = int(loaded.get("controlPort") or 8766)
         order = loaded.get("moduleOrder")
         if isinstance(order, list):
             self.module_order = [name for name in order if name in self.modules]
@@ -214,6 +237,8 @@ class SetupFlow:
         loaded["fanPrefs"] = self.fan_prefs
         loaded["pairedName"] = self.paired_name
         loaded["moduleOrder"] = self.module_order
+        loaded["piShutdown"] = self.pi_shutdown
+        loaded["controlPort"] = self.control_port
         if self.saved_host:
             loaded["hostUrl"] = self.saved_host
         loaded["localPort"] = loaded.get("localPort") or 8734

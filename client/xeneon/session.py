@@ -29,6 +29,8 @@ class Session:
         self.gpu_level: str | None = None
         self.cpu_history: list[float] = []
         self.gpu_history: list[float] = []
+        self.cpu_times: list[float] = []
+        self.gpu_times: list[float] = []
         self._sequence: int | None = None
         self._sampled_at: datetime | None = None
         self._document: dict | None = None
@@ -78,7 +80,7 @@ class Session:
         self._sampled_at = parse_time(str(doc["sampledAtUtc"]))
         self._document = doc
         self._ever = True
-        self._apply_levels(doc)
+        self._apply_levels(doc, self._sampled_at or now)
         self.link = "stale" if now - self._sampled_at > self.stale_after else "live"
         if self.link != "live":
             return "stale"
@@ -99,8 +101,9 @@ class Session:
             "banner": _banner(self.link, bool(doc and doc.get("synthetic"))),
             "thresholds": {"rise": list(self.rise), "fall": list(self.fall)},
             "wifi": wifi,
-            "cpu": _cpu_block(doc, cpu_temp, self.cpu_level if fresh else None, self.cpu_history if fresh else []),
-            "gpu": _gpu_block(doc, gpu_temp, self.gpu_level if fresh else None, self.gpu_history if fresh else []),
+            "cpu": _cpu_block(doc, cpu_temp, self.cpu_level if fresh else None, self.cpu_history if fresh else [], self.cpu_times if fresh else []),
+            "gpu": _gpu_block(doc, gpu_temp, self.gpu_level if fresh else None, self.gpu_history if fresh else [], self.gpu_times if fresh else []),
+            "sampleIntervalSeconds": _interval(self.cpu_times if fresh else [], self.gpu_times if fresh else []),
             "memory": _bytes_pair(doc, ("memory", "used"), ("memory", "total")) if doc else {"usedBytes": None, "totalBytes": None},
             "vram": _bytes_pair(doc, ("gpu", "vram", "used"), ("gpu", "vram", "total")) if doc else {"usedBytes": None, "totalBytes": None},
             "caseFans": _fans(doc, "case") if doc else [],
@@ -139,21 +142,19 @@ class Session:
             return 200, self.spotify["repeat"]
         return 403, "action_not_allowed"
 
-    def _apply_levels(self, doc: dict) -> None:
+    def _apply_levels(self, doc: dict, when: datetime) -> None:
         cpu = _temp(doc, "cpu")
         gpu = _gpu_temperature(doc)
         if cpu is None:
             self.cpu_level = None
         else:
             self.cpu_level = next_level(self.cpu_level, cpu, self.rise, self.fall)
-            self.cpu_history.append(cpu)
-            self.cpu_history = self.cpu_history[-60:]
+            _push_sample(self.cpu_history, self.cpu_times, cpu, when)
         if gpu is None:
             self.gpu_level = None
         else:
             self.gpu_level = next_level(self.gpu_level, gpu, self.rise, self.fall)
-            self.gpu_history.append(gpu)
-            self.gpu_history = self.gpu_history[-60:]
+            _push_sample(self.gpu_history, self.gpu_times, gpu, when)
 
     def _seed_demo(self) -> None:
         self._document = {"inventory": [
@@ -163,6 +164,10 @@ class Session:
         ]}
         self.cpu_history = [58, 60, 62, 64, 65, 68, 66, 64, 63, 64]
         self.gpu_history = [60, 61, 62, 63, 63, 64, 63, 63, 62, 63]
+        # Demo points are a few seconds apart so the curve is visible. Live mode uses real gaps.
+        end = datetime.now(timezone.utc).timestamp()
+        self.cpu_times = [end - 3 * (len(self.cpu_history) - 1 - index) for index in range(len(self.cpu_history))]
+        self.gpu_times = list(self.cpu_times)
         self.cpu_level = next_level(None, self.cpu_history[-1], self.rise, self.fall)
         self.gpu_level = next_level(None, self.gpu_history[-1], self.rise, self.fall)
 
@@ -211,7 +216,26 @@ def _path(doc: dict, *keys: str) -> object:
     return current
 
 
-def _cpu_block(doc: dict | None, temp: float | None, level: str | None, history: list[float]) -> dict:
+def _push_sample(history: list[float], times: list[float], value: float, when: datetime) -> None:
+    """Keep one point per host sample. A repeated timestamp is the same sample, not a new gap."""
+    stamp = when.timestamp()
+    if times and abs(times[-1] - stamp) < 0.05:
+        history[-1] = value
+        return
+    history.append(value)
+    times.append(stamp)
+    del history[:-60]
+    del times[:-60]
+
+
+def _interval(cpu_times: list[float], gpu_times: list[float]) -> float:
+    from xeneon.smooth import median_interval
+
+    stamps = cpu_times if len(cpu_times) >= len(gpu_times) else gpu_times
+    return median_interval(stamps)
+
+
+def _cpu_block(doc: dict | None, temp: float | None, level: str | None, history: list[float], history_at: list[float] | None = None) -> dict:
     logical = [None] * 16
     total = None
     fans: list[dict] = []
@@ -222,13 +246,19 @@ def _cpu_block(doc: dict | None, temp: float | None, level: str | None, history:
             for index, item in enumerate(items[:16]):
                 logical[index] = reading_value(item)
         fans = _fans(doc, "cpu")
-    return {"temp": temp, "level": level, "history": history, "loadTotal": total, "logical": logical, "fans": fans}
+    block = {"temp": temp, "level": level, "history": history, "loadTotal": total, "logical": logical, "fans": fans}
+    if history_at is not None:
+        block["historyAt"] = history_at
+    return block
 
 
-def _gpu_block(doc: dict | None, temp: float | None, level: str | None, history: list[float]) -> dict:
+def _gpu_block(doc: dict | None, temp: float | None, level: str | None, history: list[float], history_at: list[float] | None = None) -> dict:
     load = reading_value(_path(doc, "readings", "gpu", "load")) if doc else None
     fans = _fans(doc, "gpu") if doc else []
-    return {"temp": temp, "level": level, "history": history, "load": load, "fans": fans}
+    block = {"temp": temp, "level": level, "history": history, "load": load, "fans": fans}
+    if history_at is not None:
+        block["historyAt"] = history_at
+    return block
 
 
 def _fans(doc: dict, group: str) -> list[dict]:
@@ -315,6 +345,7 @@ def _demo_view(session: Session, wifi: dict) -> dict:
             "temp": session.cpu_history[-1],
             "level": session.cpu_level,
             "history": session.cpu_history,
+            "historyAt": session.cpu_times,
             "loadTotal": 36,
             "logical": logical,
             "fans": [{"name": "CPU FAN", "rpm": 870}],
@@ -323,9 +354,11 @@ def _demo_view(session: Session, wifi: dict) -> dict:
             "temp": session.gpu_history[-1],
             "level": session.gpu_level,
             "history": session.gpu_history,
+            "historyAt": session.gpu_times,
             "load": 42,
             "fans": [{"name": "GPU FAN 1", "rpm": 1140}, {"name": "FAN 2", "rpm": 1110}],
         },
+        "sampleIntervalSeconds": _interval(session.cpu_times, session.gpu_times),
         "memory": {"usedBytes": 18.4 * (1024 ** 3), "totalBytes": 32 * (1024 ** 3)},
         "vram": {"usedBytes": 4.5 * (1024 ** 3), "totalBytes": 8 * (1024 ** 3)},
         "caseFans": [

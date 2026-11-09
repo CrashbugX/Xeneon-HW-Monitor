@@ -19,6 +19,7 @@ from xeneon.bridge import Bridge
 from xeneon.poweroff import PoweroffServer, PoweroffState
 from xeneon.session import Session
 from xeneon.setupflow import SetupFlow
+from xeneon.shutdownlink import ensure_token, host_ip, pi_shutdown_enabled
 from xeneon.spotify import SpotifySession
 
 
@@ -44,24 +45,29 @@ def main(argv: list[str] | None = None) -> int:
     spotify = SpotifySession(config_path.parent / "spotify.json", setup.client_id, port)
     bridge = Bridge(session, host_url, token, port, setup, spotify)
     control = None
-    if mode == "live" and config.get("controlBind"):
-        shutdown_token = _read_token(config.get("shutdownTokenFile") or "")
-        if shutdown_token:
-            state = PoweroffState(_real_helper)
-            try:
-                control = PoweroffServer(
-                    config["controlBind"],
-                    int(config.get("controlPort") or 8766),
-                    shutdown_token,
-                    state,
-                    bool(config.get("controlAllowLan")),
-                )
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-            except OSError as exc:
-                print(f"control listener failed: {exc}", file=sys.stderr)
-                return 1
+    # Live mode listens for the paired PC by default. Demo never does.
+    # An old controlAllowLan false value does not turn this off. piShutdown does.
+    if mode == "live" and pi_shutdown_enabled(config):
+        shutdown_path = Path(config.get("shutdownTokenFile") or (config_path.parent / "shutdown.token"))
+        shutdown_token = ensure_token(shutdown_path)
+        state = PoweroffState(_real_helper)
+        try:
+            control = PoweroffServer(
+                "0.0.0.0",
+                int(config.get("controlPort") or 8766),
+                shutdown_token,
+                state,
+                True,
+                restrict_host=host_ip(str(host_url or "")),
+            )
+        except OSError as exc:
+            print(f"control listener failed: {exc}", file=sys.stderr)
+            control = None
+        else:
+            control.enabled = setup.pi_shutdown
+            bridge.control = control
+            bridge.shutdown_token = shutdown_token
+            bridge.control_port = int(control.httpd.server_address[1])
     bridge.start()
     if control is not None:
         control.start()

@@ -28,6 +28,25 @@ DASHBOARD_PATH = "/"
 TRANSITION_TIMEOUT_SECONDS = 8
 
 
+def state_dir() -> Path:
+    """Durable log and pause flag. Runtime is wiped at logout; this is not.
+
+    Tests set XENEON_STATE_DIR, or inherit a directory under XENEON_RUNTIME_DIR,
+    so a unit test does not write into the real home directory.
+    """
+    override = os.environ.get("XENEON_STATE_DIR")
+    if override:
+        path = Path(override)
+    elif os.environ.get("XENEON_RUNTIME_DIR"):
+        path = Path(os.environ["XENEON_RUNTIME_DIR"]) / "state"
+    else:
+        base = os.environ.get("XDG_STATE_HOME")
+        root = Path(base) if base else Path.home() / ".local" / "state"
+        path = root / "xeneon"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def runtime_dir() -> Path:
     override = os.environ.get("XENEON_RUNTIME_DIR")
     if override:
@@ -81,11 +100,179 @@ def browser_argv(browser: str, mode: str, port: int, profile: Path) -> list[str]
         # labwc is Wayland. This does not turn on --kiosk, which ignores the
         # page Fullscreen API and forced a relaunch to leave the mode.
         argv.insert(1, "--ozone-platform=wayland")
+    # Explicit size stops Chromium from restoring a small saved square.
+    # The XENEON panel is 2560x720. Windowed mode uses that full size too.
+    width, height = output_size()
+    argv.extend([f"--window-size={width},{height}", "--window-position=0,0"])
     if mode == "fullscreen":
         argv.append("--start-fullscreen")
     else:
-        argv.extend(["--new-window", "--window-size=1280,720"])
+        argv.append("--new-window")
     return argv
+
+
+# The XENEON EDGE native picture is 2560x720. A fallback EDID mode is
+# usually 1920x1080 or a square-ish default, and labwc then letterboxes it.
+NATIVE_MODE = (2560, 720)
+
+
+def parse_wlr_randr(text: str) -> list[dict]:
+    """Read `wlr-randr` text. Each output has its modes, current mode, scale, and transform."""
+    outputs: list[dict] = []
+    current: dict | None = None
+    for raw in text.splitlines():
+        if raw and not raw[:1].isspace():
+            name = raw.split()[0]
+            current = {
+                "name": name,
+                "modes": [],
+                "current": None,
+                "preferred": None,
+                "scale": "",
+                "transform": "",
+                "enabled": True,
+            }
+            outputs.append(current)
+            continue
+        if current is None:
+            continue
+        line = raw.strip()
+        if line.startswith("Enabled:"):
+            current["enabled"] = line.split(":", 1)[1].strip().lower() == "yes"
+        elif line.startswith("Transform:"):
+            current["transform"] = line.split(":", 1)[1].strip().lower()
+        elif line.startswith("Scale:"):
+            current["scale"] = line.split(":", 1)[1].strip()
+        elif line.endswith("px") or " px" in line:
+            token = line.split()[0] if line.split() else ""
+            if "x" not in token:
+                continue
+            width_text, height_text = token.split("x", 1)
+            if not (width_text.isdigit() and height_text.isdigit()):
+                continue
+            mode = (int(width_text), int(height_text))
+            current["modes"].append(mode)
+            lowered = line.lower()
+            if "current" in lowered:
+                current["current"] = mode
+            if "preferred" in lowered:
+                current["preferred"] = mode
+    return outputs
+
+
+def describe_outputs(text: str) -> str:
+    """One line per output. This does not build a command and does not change the mode.
+
+    Diego confirmed the square window is an extra Chromium, not the panel's
+    resolution: the other windows were already the right size. The log is only
+    so a later failure can show what the compositor was doing.
+    """
+    outputs = parse_wlr_randr(text)
+    if not outputs:
+        return "wlr-randr returned no outputs"
+    parts = []
+    for output in outputs:
+        current = output["current"]
+        size = f"{current[0]}x{current[1]}" if current else "unset"
+        modes = ",".join(f"{width}x{height}" for width, height in output["modes"]) or "none"
+        parts.append(
+            f"{output['name']} current={size} scale={output['scale'] or '?'} "
+            f"transform={output['transform'] or '?'} modes={modes}"
+        )
+    return "; ".join(parts)
+
+
+def log_output_snapshot() -> str:
+    """Run `wlr-randr` with no arguments and append the text. Never passes --mode."""
+    import shutil
+
+    if shutil.which("wlr-randr") is None:
+        message = "wlr-randr is not installed. The output mode was not read and was not changed."
+        log_window(message)
+        return message
+    try:
+        completed = subprocess.run(["wlr-randr"], capture_output=True, text=True, timeout=3, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        message = "wlr-randr could not be read: " + str(exc)
+        log_window(message)
+        return message
+    text = (completed.stdout or "") + (completed.stderr or "")
+    log_window("wlr-randr (logged only, mode not changed):\n" + text.rstrip())
+    summary = describe_outputs(completed.stdout or "")
+    log_window("output " + summary)
+    return summary
+
+
+def try_kiosk_lock(directory: Path | None = None):
+    """Exclusive lock. None means another launcher already holds it."""
+    root = directory or runtime_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    handle = (root / "kiosk.lock").open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def dedupe_autostart(text: str, line: str) -> str:
+    """Leave one supervise line. Older duplicates, including a second path, are removed."""
+    kept = [raw for raw in text.splitlines() if "kiosk.sh" not in raw and "xeneon-kiosk" not in raw]
+    kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
+
+
+def focus_existing() -> str:
+    """A second launcher focuses the dashboard instead of starting Chromium."""
+    log_window("kiosk.lock is held. A second Chromium was not started.")
+    import shutil
+
+    if shutil.which("wlrctl") is None:
+        return "lock held; wlrctl is not installed, so the existing window was not focused"
+    subprocess.run(["wlrctl", "toplevel", "focus", "title:Xeneon HW Monitor"], timeout=2, check=False)
+    return "lock held; focus requested"
+
+
+def output_size() -> tuple[int, int]:
+    """Panel size unless XENEON_WINDOW_SIZE is WxH. A square default is not used."""
+    raw = os.environ.get("XENEON_WINDOW_SIZE", "2560x720")
+    parts = raw.lower().split("x")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        width, height = int(parts[0]), int(parts[1])
+        if width >= 320 and height >= 240:
+            return width, height
+    return 2560, 720
+
+
+def clear_window_placement(profile: Path) -> None:
+    """Drop saved bounds so the next launch honours --window-size.
+
+    Chromium stores these in the profile Preferences. A restored square made
+    the page use the narrow layout before labwc had reported the output.
+    """
+    path = profile / "Default" / "Preferences"
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+    changed = False
+    for key in ("window_placement", "session"):
+        if key == "window_placement" and key in data:
+            data.pop(key, None)
+            changed = True
+    browser = data.get("browser")
+    if isinstance(browser, dict) and "window_placement" in browser:
+        browser.pop("window_placement", None)
+        changed = True
+    if changed:
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data), encoding="utf-8")
+        temporary.replace(path)
 
 
 def proc_args(pid: int, proc_root: Path | None = None) -> list[str] | None:
@@ -269,12 +456,19 @@ def stop_old_launchers(proc_root: Path | None = None, skip: set[int] | None = No
 
 
 def read_mode(directory: Path | None = None) -> str:
-    path = (directory or runtime_dir()) / "mode"
+    """Paused in the state file wins. A timeout must not silently reopen the window."""
+    if _read_mode_file(state_dir() / "mode") == "paused":
+        return "paused"
+    text = _read_mode_file((directory or runtime_dir()) / "mode")
+    return text if text in MODES else "fullscreen"
+
+
+def _read_mode_file(path: Path) -> str:
     try:
         text = path.read_text(encoding="utf-8").strip()
     except OSError:
-        return "fullscreen"
-    return text if text in MODES else "fullscreen"
+        return ""
+    return text if text in MODES else ""
 
 
 def read_applied_mode(directory: Path | None = None) -> str | None:
@@ -314,9 +508,18 @@ def write_revision(value: int, directory: Path | None = None) -> None:
 
 
 def write_mode(mode: str, directory: Path | None = None) -> None:
+    """Write the mode before any browser is killed, in runtime and in the state dir."""
     if mode not in MODES:
         raise ValueError("mode")
     root = directory or runtime_dir()
+    _write_mode_file(root, mode)
+    # The state copy survives a supervisor restart in this login.
+    # A new login has an empty runtime dir; kiosk.sh then sets fullscreen.
+    if directory is None or directory == runtime_dir():
+        _write_mode_file(state_dir(), mode)
+
+
+def _write_mode_file(root: Path, mode: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
     temporary = root / "mode.tmp"
     temporary.write_text(mode + "\n", encoding="utf-8")
@@ -387,6 +590,16 @@ def stop_owned_mains(profile: Path, proc_root: Path | None = None, killer=None) 
 
 
 def _signal_term(pid: int) -> None:
+    """Signal the process group once. A lone SIGTERM left Chromium children to respawn."""
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        return
+    except OSError:
+        pass
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
     _signal(pid, signal.SIGTERM)
 
 
@@ -399,8 +612,14 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _spawn_browser(browser: str, mode: str, port: int, profile: Path) -> int:
+    if read_mode() == "paused":
+        log_window("refusing to spawn; mode is paused")
+        return 0
+    clear_window_placement(profile)
     argv = browser_argv(browser, mode, port, profile)
-    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    log_window("launch " + " ".join(argv))
+    # Own process group so Close can signal the whole Chromium tree once.
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     runtime = runtime_dir()
     (runtime / "browser.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
     return proc.pid
@@ -436,6 +655,10 @@ def _wait_stable(started: int, profile: Path, timeout: float = 3.0) -> int | Non
 
 
 def _mark_failed(previous: str | None) -> None:
+    if read_mode() == "paused":
+        write_mode("paused")
+        log_window("launch failed while paused; not opening a window")
+        return
     restore = previous if previous in {"fullscreen", "windowed"} else "fullscreen"
     write_mode(restore)
     data = read_transition() or {}
@@ -449,12 +672,29 @@ def _mark_failed(previous: str | None) -> None:
 
 
 def log_window(message: str, directory: Path | None = None) -> None:
-    """Append one diagnostic line. The Pi can show it with tail on this file."""
-    root = directory or runtime_dir()
-    root.mkdir(parents=True, exist_ok=True)
+    """Append one line to the runtime log and to the durable state log.
+
+    The runtime file disappears at logout. ~/.local/state/xeneon/window.log
+    is rotated so a reboot still has the launch, close, pause, and lock lines.
+    """
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    with (root / "window.log").open("a", encoding="utf-8") as handle:
-        handle.write(f"{stamp} {message}\n")
+    line = f"{stamp} pid={os.getpid()} {message}\n"
+    root = directory or runtime_dir()
+    _append_log(root / "window.log", line, rotate=False)
+    state_log = state_dir() / "window.log"
+    if directory is None or directory == runtime_dir() or os.environ.get("XENEON_STATE_DIR"):
+        _append_log(state_log, line, rotate=True)
+
+
+def _append_log(path: Path, line: str, rotate: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if rotate and path.is_file() and path.stat().st_size > 200_000:
+        previous = path.with_suffix(".log.1")
+        if previous.exists():
+            previous.unlink()
+        path.replace(previous)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
 
 
 def nudge_fullscreen(directory: Path | None = None) -> dict:
@@ -572,6 +812,14 @@ def apply_launched_mode(browser: str, port: int, profile: Path | None = None) ->
         return {"ok": True, "stable": True, "mode": mode, "pid": stable}
     stop_owned_mains(owned)
     _mark_failed(applied)
+    if read_mode() == "paused":
+        log_window("paused; Chromium was not started again")
+        return {
+            "ok": False,
+            "stable": False,
+            "mode": "paused",
+            "detail": "The dashboard stays closed. Chromium was not started again.",
+        }
     if applied in {"fullscreen", "windowed"} and read_mode() == applied and not owned_main_pids(owned):
         restored = _spawn_browser(browser, applied, port, owned)
         survivor = _wait_stable(restored, owned)
@@ -707,6 +955,15 @@ def reconcile_transition(directory: Path | None = None, now: float | None = None
     started = float(data.get("started") or 0)
     if moment - started < TRANSITION_TIMEOUT_SECONDS:
         return data
+    if str(data.get("target") or "") == "paused" or read_mode(root) == "paused":
+        # Close already asked the window to stay down. Do not open it again.
+        write_mode("paused", root)
+        failed = dict(data)
+        failed["status"] = "failed"
+        failed["detail"] = "Close did not finish confirming the window was gone. The supervisor will not open another one."
+        write_transition(failed, root)
+        log_window("pause timeout; not relaunching", root)
+        return failed
     applied = read_applied_mode(root)
     restore = applied if applied in {"fullscreen", "windowed"} else "fullscreen"
     write_mode(restore, root)
@@ -1020,6 +1277,15 @@ def main(argv: list[str] | None = None) -> int:
         argv_out = browser_argv(args[1], args[2], int(args[3]), profile_dir())
         os.execvp(argv_out[0], argv_out)
         return 1
+    if command == "log-window":
+        log_window(" ".join(args[1:]) or "log")
+        return 0
+    if command == "log-output":
+        print(log_output_snapshot())
+        return 0
+    if command == "focus":
+        print(focus_existing())
+        return 0
     if command == "poke":
         pid = supervisor_pid()
         if pid and supervisor_is_ours(pid):

@@ -72,14 +72,37 @@ class PoweroffState:
         threading.Thread(target=run, name="xeneon-poweroff", daemon=True).start()
 
 
-class PoweroffServer:
-    """LAN control listener. Bind-all is refused unless allow_lan is true."""
+def normalize_ip(value: str) -> str:
+    """Compare IPv4 and IPv4-mapped IPv6 as the same address."""
+    text = (value or "").strip()
+    if text.startswith("::ffff:"):
+        return text[7:]
+    return text
 
-    def __init__(self, bind: str, port: int, token: str, state: PoweroffState, allow_lan: bool) -> None:
+
+def peer_allowed(peer: str, host_ip: str) -> bool:
+    """True only when the request comes from the paired PC. An unknown PC is refused."""
+    expected = normalize_ip(host_ip)
+    if not expected:
+        return False
+    return normalize_ip(peer) == expected
+
+
+class PoweroffServer:
+    """LAN control listener. Bind-all is refused unless allow_lan is true.
+
+    restrict_host is the paired PC address. None keeps older tests unrestricted.
+    An empty string refuses every poweroff until a host is known.
+    enabled is the Setup toggle. Turning it off does not uninstall the helper.
+    """
+
+    def __init__(self, bind: str, port: int, token: str, state: PoweroffState, allow_lan: bool, restrict_host: str | None = None) -> None:
         if bind in ("0.0.0.0", "::", "") and not allow_lan:
             raise ValueError("refusing control bind on all interfaces without allowLan")
         self.token = token
         self.state = state
+        self.restrict_host = restrict_host
+        self.enabled = True
         handler = _handler_factory(self)
         self.httpd = ThreadingHTTPServer((bind, port), handler)
         self.thread = threading.Thread(target=self.httpd.serve_forever, name="xeneon-control", daemon=True)
@@ -103,8 +126,14 @@ def _handler_factory(server: PoweroffServer):
             if self.path.split("?", 1)[0] != "/v1/poweroff":
                 _send(self, 404, {"ok": False, "error": "not_found"})
                 return
+            if not server.enabled:
+                _send(self, 403, {"ok": False, "error": "poweroff_disabled"})
+                return
             if not _authorized(self, server.token):
                 _send(self, 401, {"ok": False, "error": "unauthorized"})
+                return
+            if not _peer_ok(self, server):
+                _send(self, 403, {"ok": False, "error": "wrong_host"})
                 return
             length = int(self.headers.get("Content-Length", "0") or 0)
             raw = self.rfile.read(length) if length else b""
@@ -120,12 +149,26 @@ def _handler_factory(server: PoweroffServer):
             if self.path.split("?", 1)[0] != "/v1/poweroff/status":
                 _send(self, 404, {"ok": False, "error": "not_found"})
                 return
+            if not server.enabled:
+                _send(self, 403, {"ok": False, "error": "poweroff_disabled"})
+                return
             if not _authorized(self, server.token):
                 _send(self, 401, {"ok": False, "error": "unauthorized"})
                 return
+            if not _peer_ok(self, server):
+                _send(self, 403, {"ok": False, "error": "wrong_host"})
+                return
+            # Status does not start the helper. The host reads it while it waits.
             _send(self, 200, server.state.status())
 
     return Handler
+
+
+def _peer_ok(handler: BaseHTTPRequestHandler, server: PoweroffServer) -> bool:
+    if server.restrict_host is None:
+        return True
+    peer = handler.client_address[0] if handler.client_address else ""
+    return peer_allowed(peer, server.restrict_host)
 
 
 def _authorized(handler: BaseHTTPRequestHandler, token: str) -> bool:

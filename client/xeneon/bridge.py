@@ -37,6 +37,10 @@ class Bridge:
         self.setup = setup
         self.spotify = spotify
         self.csrf = secrets.token_urlsafe(24)
+        self.shutdown_token = ""
+        self.control_port = 8766
+        self.control = None
+        self._next_announce = 0.0
         self._misses = 0
         self._stop = threading.Event()
         handler = _page_factory(self)
@@ -88,6 +92,7 @@ class Bridge:
             "spotifyAccount": self.spotify.account_name() if self.spotify is not None and self.spotify.logged_in() else "",
             "fans": self.setup.fan_rows(self.session.document()) if self.setup is not None else [],
             "demo": self.session.mode == "demo",
+            "piShutdown": self.setup.pi_shutdown if self.setup is not None else True,
         }
 
     def allow_post(self, handler: BaseHTTPRequestHandler) -> bool:
@@ -181,6 +186,7 @@ class Bridge:
                 self.setup.observe_document(payload)
             if self.spotify is not None and self.session.mode != "demo":
                 self.session.set_live_spotify(self.spotify.poll())
+            self._announce_shutdown()
 
     def _rediscover(self) -> None:
         """Find the paired PC again after its address changes. The token is not replaced."""
@@ -194,6 +200,25 @@ class Bridge:
             base = str(chosen.get("baseUrl") or "").rstrip("/")
             self.host_url = base
             self.setup.remember_host(base, str(chosen.get("name") or self.setup.paired_name))
+            self._next_announce = 0.0
+            if self.control is not None:
+                from xeneon.shutdownlink import host_ip
+                self.control.restrict_host = host_ip(base)
+
+
+    def _announce_shutdown(self) -> None:
+        """Give the paired PC the shutdown token again. A quiet failure waits and retries."""
+        if not self.shutdown_token or not self.token or not self.host_url:
+            return
+        if self.control is not None and not self.control.enabled:
+            return
+        import time
+        now = time.time()
+        if now < self._next_announce:
+            return
+        from xeneon.shutdownlink import announce
+        status = announce(self.host_url, self.token, self.control_port, self.shutdown_token)
+        self._next_announce = now + (60 if status == 200 else 300)
 
 
 def _token_accepts(base: str, token: str) -> bool:
@@ -263,6 +288,26 @@ def _page_factory(bridge: Bridge):
             # foreign Origin, or a Host that is not this loopback port, is refused.
             if path == "/api/window" and not _window_origin_ok(bridge, self):
                 _json(self, 403, {"ok": False, "error": "origin"})
+                return
+            # Viewport numbers are not a control. Loopback only, so the page can
+            # report its size before the setup token has been fetched.
+            if path == "/api/viewport":
+                host = (self.headers.get("Host") or "").split(":")[0].lower()
+                if host not in {"127.0.0.1", "localhost", "[::1]"}:
+                    _json(self, 403, {"ok": False, "error": "origin"})
+                    return
+                length = int(self.headers.get("Content-Length", "0") or 0)
+                try:
+                    body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    _json(self, 400, {"ok": False, "error": "json"})
+                    return
+                width = body.get("innerWidth")
+                height = body.get("innerHeight")
+                ratio = body.get("devicePixelRatio")
+                from xeneon.kioskctl import log_window
+                log_window(f"viewport inner={width}x{height} dpr={ratio}")
+                _json(self, 200, {"ok": True})
                 return
             if not bridge.allow_post(self):
                 _json(self, 403, {"ok": False, "error": "csrf"})
