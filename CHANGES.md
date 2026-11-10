@@ -1,3 +1,17 @@
+# Client 0.5.0
+
+Day mode fills each CPU and GPU temperature card with its state color (green, amber, orange, or red) and uses contrasting type. The numbers stay in the 0.4.4 positions. Night cards are unchanged.
+
+CPU load is a row of tall tracks, one per logical processor, with the percent and T00 label under each bar. GPU load, RAM, and VRAM keep the large figure, unit, bar, and sub-line. Case fans are one tile each, title on its own line. A fan that reports n/a is dim, not a warning color. The 2560×720 stage scales from the top-left so a shorter window does not clip the bottom.
+
+The right-hand card is a pager: Spotify (the 0.4.4 card), a system clock with 12h/24h, and a Wi-Fi page. Swipe or tap the icons. The last page is remembered. The header Wi-Fi badge stays on every page. Wi-Fi actions use NetworkManager. Forget asks first. A new locked network can take a password, which is not stored in this app. If `nmcli` is missing, the page says so and leaves the buttons off.
+
+Setup has a Weather tab. Open-Meteo needs no key. Location is automatic from the network, or a city you type. Effects (sun, clouds, rain, storm, fog) draw behind the cards and pause when the tab is hidden. Card opacity stops at 68% so the numbers stay readable. A header badge shows the condition.
+
+The gear menu cycles Theme: Auto, Day, and Night. Auto follows sunrise and sunset from the weather location, or 07:00–19:00. Brightness is a dim overlay until a real panel backlight exists. Close dashboard asks you to confirm. The menu still closes on the next click, and a real control still runs.
+
+`install.sh` installs the `unclutter` package when it can, and the kiosk starts it so the pointer hides. That is the Debian package, not a custom cursor hider.
+
 # Client 0.4.4
 
 The Spotify card matches the PrestoDeck mock. Album art cover-crops the whole 580×648 card. A color wash sampled from the art and a soft dark gradient at the bottom keep the title readable. The control row is always visible: shuffle, previous, a white circular play/pause, next, and repeat. Shuffle is the crossing arrows and repeat is the loop, white when off and Spotify green when on. Idle says Nothing playing. A paused track keeps its cover. Play is still offered only while paused, and pause only while playing.
