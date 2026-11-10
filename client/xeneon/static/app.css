@@ -8,6 +8,7 @@
   --dim: #545c68;
   --slate: #aab8cc;
   --thread: #1a1e25;
+  --bar: #3aa0ff;
   --meter: #20252d;
   --input: #0e1116;
   --transport: #191d24;
@@ -37,6 +38,7 @@ html[data-theme="day"] {
   --dim: #3d4e64;
   --slate: #0077ee;
   --thread: #e5f0ff;
+  --bar: #0077ee;
   --meter: #d5e4f8;
   --input: #ffffff;
   --transport: #e7f1ff;
@@ -121,9 +123,9 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
 }
 /* Tall Spotify card. Compact mode sets position:static on #spotify, so the
    art is clipped here and cannot cover the rest of the page. */
-#spotify.spot {
+#spotify .spot {
   overflow: hidden; color: #fff; border: none;
-  background: #0e141c;
+  background: #0e141c; height: 100%;
 }
 #spotify .spot-media { position: absolute; inset: 0; isolation: isolate; z-index: 0; }
 #spotify .spot-art, #spotify .spot-tint, #spotify .spot-vignette { position: absolute; inset: 0; }
@@ -132,7 +134,7 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
   object-fit: cover;
   object-position: center;
 }
-#spotify.idle .spot-art {
+#spotify .spot.idle .spot-art {
   background: linear-gradient(145deg, #1a2330 0%, #0e141c 55%, #162018 100%);
 }
 #spotify .spot-tint {
@@ -147,7 +149,7 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
 #spotify .spot-chrome {
   position: absolute; inset: 0; z-index: 1;
   display: flex; flex-direction: column;
-  padding: 18px 20px 18px;
+  padding: 18px 20px 72px;
 }
 #spotify .spot-top { display: flex; align-items: flex-start; }
 #spotify .spot-logo { width: 28px; height: 28px; }
@@ -159,7 +161,7 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
   text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.4);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#spotify.idle .spot-title { font-size: 22px; }
+#spotify .spot.idle .spot-title { font-size: 22px; }
 #spotify .spot-artist {
   color: #fff;
   margin-top: 4px; font-size: 16px; font-weight: 500; opacity: .95;
@@ -180,7 +182,7 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
   background: #fff; transform: translateY(-50%);
   box-shadow: 0 1px 3px rgba(0,0,0,.35);
 }
-#spotify.idle .spot-progress > span::after { display: none; }
+#spotify .spot.idle .spot-progress > span::after { display: none; }
 #spotify .spot-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 14px 4px;
@@ -194,21 +196,36 @@ body:has(#setup:not([hidden])) #osk { display: grid; }
 #spotify .spot-btn.play { width: 80px; height: 80px; }
 #spotify .spot-btn.play img { width: 72px; height: 72px; display: block; filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)); }
 #spotify button.transport:disabled { opacity: 0.4; }
-html[data-theme="day"] .temp-card.level-green,
-html[data-theme="day"] .temp-card.level-yellow,
-html[data-theme="day"] .temp-card.level-orange,
-html[data-theme="day"] .temp-card.level-red {
-  background: #ffffff;
-  color: var(--text);
-}
-html[data-theme="day"] .temp-card.level-green { border-color: #00a63e; }
-html[data-theme="day"] .temp-card.level-yellow { border-color: #e6a100; }
-html[data-theme="day"] .temp-card.level-orange { border-color: #f25c00; }
-html[data-theme="day"] .temp-card.level-red { border-color: #e10600; }
-html[data-theme="day"] .temp-card.level-green .hero { color: #008f36; }
-html[data-theme="day"] .temp-card.level-yellow .hero { color: #c48a00; }
-html[data-theme="day"] .temp-card.level-orange .hero { color: #e35200; }
-html[data-theme="day"] .temp-card.level-red .hero { color: #d10000; }
+/* Day cards fill with the state color so a glance across the room is enough.
+   Positions and sizes stay the 0.4.4 layout. Night keeps the dark tint. */
+html[data-theme="day"] .temp-card.level-green { background: #00c853; color: #04210e; border-color: #007a32; }
+html[data-theme="day"] .temp-card.level-yellow { background: #ffc400; color: #1a1400; border-color: #a37b00; }
+html[data-theme="day"] .temp-card.level-orange { background: #ff6d00; color: #1a0c00; border-color: #a84300; }
+html[data-theme="day"] .temp-card.level-red { background: #e10600; color: #fff; border-color: #8a0400; }
+html[data-theme="day"] .temp-card.level-green .hero,
+html[data-theme="day"] .temp-card.level-green .kicker,
+html[data-theme="day"] .temp-card.level-green .sub,
+html[data-theme="day"] .temp-card.level-green .unit,
+html[data-theme="day"] .temp-card.level-green .fan,
+html[data-theme="day"] .temp-card.level-green .fan b,
+html[data-theme="day"] .temp-card.level-yellow .hero,
+html[data-theme="day"] .temp-card.level-yellow .kicker,
+html[data-theme="day"] .temp-card.level-yellow .sub,
+html[data-theme="day"] .temp-card.level-yellow .unit,
+html[data-theme="day"] .temp-card.level-yellow .fan,
+html[data-theme="day"] .temp-card.level-yellow .fan b,
+html[data-theme="day"] .temp-card.level-orange .hero,
+html[data-theme="day"] .temp-card.level-orange .kicker,
+html[data-theme="day"] .temp-card.level-orange .sub,
+html[data-theme="day"] .temp-card.level-orange .unit,
+html[data-theme="day"] .temp-card.level-orange .fan,
+html[data-theme="day"] .temp-card.level-orange .fan b { color: inherit; }
+html[data-theme="day"] .temp-card.level-red .hero,
+html[data-theme="day"] .temp-card.level-red .kicker,
+html[data-theme="day"] .temp-card.level-red .sub,
+html[data-theme="day"] .temp-card.level-red .unit,
+html[data-theme="day"] .temp-card.level-red .fan,
+html[data-theme="day"] .temp-card.level-red .fan b { color: #fff; }
 html[data-theme="day"] .temp-card.level-green .pill { background: #00a63e; color: #ffffff; border-color: #007a2e; }
 html[data-theme="day"] .temp-card.level-yellow .pill { background: #f5b400; color: #1a1400; border-color: #c48a00; }
 html[data-theme="day"] .temp-card.level-orange .pill { background: #f25c00; color: #ffffff; border-color: #c44700; }
@@ -218,7 +235,7 @@ html[data-theme="day"] .banner.disconnected, html[data-theme="day"] .banner.stal
 html[data-theme="day"] .bars i { background: #c5d2e4; }
 html[data-theme="day"] .bars i.on { background: #00a63e; }
 html[data-theme="day"] .meter span { background: #0077ee; }
-html[data-theme="day"] .thread .bar { background: #0077ee; }
+html[data-theme="day"] #load .bar { background: var(--bar); }
 html[data-theme="day"] .stat { background: #ffffff; }
 html[data-theme="day"] .gear-menu, html[data-theme="day"] .setup-card, html[data-theme="day"] .fan-row, html[data-theme="day"] #gear, html[data-theme="day"] #osk { background: var(--panel); color: var(--text); }
 footer { display: none; }
@@ -236,18 +253,22 @@ footer { display: none; }
 button.transport svg { width: 22px; height: 22px; display: block; }
 button.transport.on { color: var(--text); border-color: var(--green); }
 #fit {
+  position: relative;
   width: 100vw;
   height: 100vh;
   margin-top: 0;
-  display: grid;
-  place-items: center;
   overflow: hidden;
 }
 #stage {
   width: 2560px;
   height: 720px;
-  position: relative;
-  transform-origin: center center;
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* fitStage scales from this corner, then shifts the picture into the window.
+     Scaling around the center left the bottom under the fold whenever the
+     window was shorter than 720. */
+  transform-origin: top left;
   background: var(--bg);
 }
 header { position: absolute; left: 28px; right: 28px; top: 12px; height: 36px; }
@@ -273,13 +294,12 @@ header { position: absolute; left: 28px; right: 28px; top: 12px; height: 36px; }
 #cpu { left: 28px; top: 52px; width: 552px; height: 648px; }
 #gpu { left: 596px; top: 52px; width: 552px; height: 648px; }
 #mid { position: absolute; left: 1164px; top: 52px; width: 764px; height: 648px; }
+/* Same 0.4.4 tiles and stat type. The load block is only as tall as those
+   tiles, the stat cards are a little shorter, and fans use what is left. */
 #load { position: absolute; left: 0; top: 0; width: 764px; height: 272px; }
-#stats { position: absolute; left: 0; top: 288px; width: 764px; height: 184px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-#cases { position: absolute; left: 0; top: 488px; width: 764px; height: 80px; }
+#stats { position: absolute; left: 0; top: 284px; width: 764px; height: 172px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+#cases { position: absolute; left: 0; top: 468px; width: 764px; height: 180px; }
 #spotify { left: 1952px; top: 52px; width: 580px; height: 648px; }
-#load { height: 320px; }
-#stats { top: 336px; }
-#cases { top: 536px; }
 footer {
   position: absolute; left: 28px; right: 28px; bottom: 14px;
   color: var(--mut); font-size: 13px;
@@ -305,23 +325,53 @@ canvas.graph { position: absolute; left: 22px; right: 22px; top: 268px; width: c
 .fan svg.stopped { animation: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .pad { padding: 22px 24px; }
-.threads { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px 12px; margin-top: 18px; }
-.thread { background: var(--thread); border-radius: 10px; height: 84px; position: relative; overflow: hidden; }
-.thread .bar {
-  position: absolute; left: 10px; right: 10px; bottom: 8px; height: 8px; border-radius: 5px; background: var(--slate);
-  transform-origin: bottom;
+/* Tall tracks, one per logical processor. The blue fill grows from the bottom. */
+#load { display: flex; flex-direction: column; box-sizing: border-box; }
+#load .mid-title {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--mut);
+  margin-bottom: 10px; flex: none;
 }
-.thread em, .thread strong {
-  position: absolute; top: 10px; font-style: normal; font-family: ui-monospace, monospace; font-size: 12px;
+#load .mid-title b { color: var(--text); font-size: 16px; letter-spacing: 0; font-weight: 700; }
+#load .threads {
+  display: grid; gap: 6px; flex: 1; min-height: 0; margin-top: 0;
 }
-.thread em { left: 10px; color: var(--dim); }
-.thread strong { right: 10px; color: var(--text); font-variant-numeric: tabular-nums; }
+#load .thread {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-height: 0; height: auto; background: none; border-radius: 0; position: static; overflow: visible;
+}
+#load .bar-wrap {
+  flex: 1; width: 100%; min-height: 40px; background: var(--thread); border-radius: 6px;
+  display: flex; align-items: flex-end; overflow: hidden;
+}
+#load .bar {
+  position: static; left: auto; right: auto; bottom: auto;
+  width: 100%; height: 0; border-radius: 6px 6px 0 0; background: var(--bar);
+}
+#load .pct { font-size: 11px; font-weight: 650; color: var(--text); line-height: 1; }
+#load .nm { font-size: 10px; color: var(--dim); font-weight: 650; line-height: 1; }
 .stat { background: var(--panel); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px 18px; }
 .stat .big { font-size: 48px; font-weight: 300; font-variant-numeric: tabular-nums; }
 .stat .of { color: var(--mut); font-size: 18px; margin-left: 6px; }
 .meter { height: 8px; border-radius: 5px; background: var(--meter); margin-top: 18px; overflow: hidden; }
 .meter span { display: block; height: 100%; background: var(--slate); width: 0; }
 .stat small { display: block; margin-top: 8px; color: var(--dim); }
+/* Case fans are tiles, not a single cramped line. The title stays above them. */
+#cases { display: flex; flex-direction: column; padding: 16px 18px; box-sizing: border-box; }
+#cases .kicker { flex: none; }
+#cases .fans {
+  position: static; margin-top: 12px; flex: 1;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: stretch;
+}
+#cases .fan {
+  flex-direction: column; justify-content: center; text-align: center;
+  background: var(--thread); border-radius: 14px; padding: 8px; gap: 4px;
+  font-size: 13px;
+}
+#cases .fan svg { width: 28px; height: 28px; }
+#cases .fan b { font-size: 28px; font-weight: 500; }
+.fan.na { opacity: 0.4; }
+.fan.na b { color: var(--mut); font-weight: 400; }
 .spot-head { display: flex; justify-content: space-between; align-items: center; }
 .macros, button.transport {
   background: var(--transport); color: var(--text); border: 1px solid var(--line); border-radius: 12px;
@@ -406,5 +456,67 @@ img.art { object-fit: cover; }
 #stage.compact .wifi { max-width: 100%; }
 #stage.compact .hero { font-size: 64px; }
 #stage.compact .track { font-size: 22px; }
-#stage.compact #spotify.spot { position: relative; min-height: 460px; height: 648px; }
+#stage.compact #spotify.swapper { position: relative; min-height: 520px; height: 648px; }
 #stage.compact #spotify .spot-title { font-size: 22px; }
+/* The track is three pages wide. A 100% slide was the whole track, so the
+   clock page sat a pixel off and the dark Spotify page showed as a left edge. */
+#spotify.swapper { border: none; background: transparent; overflow: hidden; border-radius: 16px; }
+.swap-viewport { position: absolute; inset: 0; overflow: hidden; }
+.swap-track { display: flex; height: 100%; width: 300%; transition: transform 280ms ease; }
+.swap-page { flex: 0 0 calc(100% / 3); width: calc(100% / 3); min-width: 0; height: 100%; position: relative; }
+.swap-nav {
+  position: absolute; left: 0; right: 0; bottom: 10px; z-index: 4;
+  display: flex; justify-content: center; gap: 12px;
+}
+.swap-nav button {
+  width: 44px; height: 44px; border-radius: 22px; border: none; padding: 0;
+  background: rgba(255,255,255,.18); color: #fff; display: grid; place-items: center;
+}
+.swap-nav button svg { width: 22px; height: 22px; }
+.swap-nav button[aria-selected="true"] { background: #2f6bff; color: #fff; }
+html[data-theme="day"] .swap-nav button { background: rgba(16,20,28,.12); color: #10141c; }
+html[data-theme="day"] .swap-nav button[aria-selected="true"] { background: #2f6bff; color: #fff; }
+.clock-page, .wifi-page {
+  height: 100%; box-sizing: border-box; padding: 28px 22px 72px;
+  background: var(--panel); border: 1.5px solid var(--line); border-radius: 16px;
+}
+.clock-kicker { text-align: center; letter-spacing: .14em; font-size: 13px; color: var(--mut); }
+.clock-face { width: 220px; height: 220px; margin: 18px auto 8px; display: block; }
+.clock-digital { text-align: center; font-size: 64px; font-weight: 650; letter-spacing: -0.04em; line-height: 1; }
+.clock-digital span { font-size: 28px; margin-left: 6px; font-weight: 500; }
+.clock-date { text-align: center; margin-top: 8px; color: var(--mut); }
+.clock-hours { display: flex; justify-content: center; gap: 0; margin-top: 16px; }
+.clock-hours button { min-width: 72px; border-radius: 0; }
+.clock-hours button:first-child { border-radius: 12px 0 0 12px; }
+.clock-hours button:last-child { border-radius: 0 12px 12px 0; }
+.clock-hours button[aria-pressed="true"] { background: #2f6bff; color: #fff; border-color: #2f6bff; }
+.wifi-page h2 { margin: 0 0 4px; font-size: 28px; }
+.wifi-status { color: #00a63e; font-weight: 650; margin-bottom: 12px; }
+.wifi-actions { display: flex; gap: 10px; margin: 12px 0; }
+.wifi-actions button { flex: 1; }
+.wifi-list { display: grid; gap: 8px; margin-top: 8px; }
+.wifi-row { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--panel); }
+.wifi-note { color: var(--mut); font-size: 14px; }
+.wifi-confirm { margin-top: 8px; padding: 10px; border-radius: 12px; background: var(--danger-bg); color: var(--danger-text); }
+#weather-sky { position: fixed; inset: 0; z-index: 0; pointer-events: none; width: 100%; height: 100%; }
+#fit { z-index: 1; }
+#stage { z-index: 1; }
+#stage.effects { background: transparent; }
+#stage.see-through .panel,
+#stage.see-through .stat,
+#stage.see-through #cases,
+#stage.see-through #load {
+  background-color: color-mix(in srgb, var(--panel) calc(var(--card-alpha) * 1%), transparent);
+  backdrop-filter: blur(8px);
+}
+html[data-theme="day"] #stage.see-through .temp-card.level-green { background-color: color-mix(in srgb, #00c853 calc(var(--card-alpha) * 1%), transparent); }
+html[data-theme="day"] #stage.see-through .temp-card.level-yellow { background-color: color-mix(in srgb, #ffc400 calc(var(--card-alpha) * 1%), transparent); }
+html[data-theme="day"] #stage.see-through .temp-card.level-orange { background-color: color-mix(in srgb, #ff6d00 calc(var(--card-alpha) * 1%), transparent); }
+html[data-theme="day"] #stage.see-through .temp-card.level-red { background-color: color-mix(in srgb, #e10600 calc(var(--card-alpha) * 1%), transparent); }
+.weather-badge {
+  position: absolute; right: 210px; top: 0; display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 650;
+}
+#dim { position: fixed; inset: 0; z-index: 4; pointer-events: none; background: #000; opacity: 0; }
+.gear-stay { display: grid; gap: 4px; font-size: 14px; }
+.gear-stay input { width: 100%; }

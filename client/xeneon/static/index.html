@@ -13,7 +13,10 @@
   <div id="gear-menu" class="gear-menu" hidden>
     <button id="gear-setup" type="button">Setup</button>
     <button id="gear-window" type="button" disabled>Fullscreen</button>
-    <button id="gear-theme" type="button">Use day mode</button>
+    <button id="gear-theme" type="button">Theme: Auto</button>
+    <label class="gear-stay">Brightness
+      <input id="gear-brightness" type="range" min="20" max="100" value="100">
+    </label>
     <p id="win-note" class="win-note" hidden></p>
     <div class="gear-danger">
       <button id="gear-close" type="button" disabled>Close dashboard</button>
@@ -28,6 +31,7 @@
     <div id="stage">
       <header>
         <div id="banner" class="banner connecting">CONNECTING · waiting for the Windows host</div>
+        <div id="weather-badge" class="weather-badge" hidden></div>
         <div class="wifi">
           <div id="wifi-ssid">Wi-Fi unavailable</div>
           <div id="wifi-bars" class="bars"></div>
@@ -40,7 +44,26 @@
         <div id="stats"></div>
         <div id="cases" class="panel"></div>
       </section>
-      <section id="spotify" class="panel"></section>
+      <section id="spotify" class="panel swapper">
+        <div class="swap-viewport" id="swap-viewport">
+          <div class="swap-track" id="swap-track">
+            <div class="swap-page" id="page-spotify"></div>
+            <div class="swap-page" id="page-clock"></div>
+            <div class="swap-page" id="page-wifi"></div>
+          </div>
+        </div>
+        <div class="swap-nav" id="swap-nav">
+          <button type="button" data-module="spotify" aria-label="Spotify">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18V6l10 6-10 6z"/></svg>
+          </button>
+          <button type="button" data-module="clock" aria-label="Clock">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M11 7h2v6l4 2-1 1.7-5-2.7V7z"/></svg>
+          </button>
+          <button type="button" data-module="wifi" aria-label="Wi-Fi">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 18.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM6.5 14.2a8 8 0 0 1 11 0l-1.4 1.4a6 6 0 0 0-8.2 0l-1.4-1.4zm-3-3a12 12 0 0 1 17 0l-1.4 1.4a10 10 0 0 0-14.2 0L3.5 11.2z"/></svg>
+          </button>
+        </div>
+      </section>
       <p id="overflow" class="overflow" hidden>Layout note</p>
     </div>
   </div>
@@ -53,6 +76,7 @@
         <button type="button" data-tab="host" aria-selected="true">Host</button>
         <button type="button" data-tab="layout">Layout</button>
         <button type="button" data-tab="spotify">Spotify</button>
+        <button type="button" data-tab="weather">Weather</button>
         <button type="button" data-tab="fans">Fans</button>
       </nav>
       <p id="setup-status">Loading.</p>
@@ -85,6 +109,16 @@
         <button id="layout-add" type="button">Add module</button>
         <div id="layout-hidden"></div>
       </div>
+      <div data-panel="weather" hidden>
+        <p>Conditions come from Open-Meteo. No key is stored. If the network is down, the last reading stays and the badge goes quiet.</p>
+        <label><input id="setup-effects" type="checkbox" checked> Environmental effects</label>
+        <p>Sun, clouds, rain, storms, and fog draw behind the cards. Off leaves the badge and hides the animation.</p>
+        <label>Card opacity <input id="setup-opacity" type="range" min="68" max="100" value="78"></label>
+        <p id="setup-opacity-note">78% — weather can show through. 100% is solid. The slider stops before the numbers get hard to read.</p>
+        <label><input id="setup-weather-auto" type="checkbox" checked> Location from this network</label>
+        <label>City, if you would rather type one <input id="setup-weather-place" placeholder="City" autocomplete="off"></label>
+        <button id="setup-weather-save" type="button">Save weather</button>
+      </div>
       <div data-panel="fans" hidden>
         <p>Every fan the host inventory lists. A role stays unknown until you choose one. Nothing here changes fan speed.</p>
         <p>Seen speeds are samples so far, not the fan's physical minimum or maximum. Use Fan Control if you want to move a fan. This app does not write duty or sweep RPM.</p>
@@ -104,6 +138,8 @@
       </div>
     </div>
   </section>
+  <canvas id="weather-sky" aria-hidden="true"></canvas>
+  <div id="dim" aria-hidden="true"></div>
   <script src="/app.js"></script>
 </body>
 </html>

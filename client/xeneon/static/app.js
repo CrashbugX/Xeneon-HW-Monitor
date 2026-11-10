@@ -55,7 +55,10 @@ function fitStage() {
   const width = fit ? fit.clientWidth : window.innerWidth;
   const height = fit ? fit.clientHeight : window.innerHeight;
   const scale = Math.min(width / 2560, height / 720);
-  stage.style.transform = "scale(" + scale + ")";
+  const x = Math.max(0, (width - 2560 * scale) / 2);
+  const y = Math.max(0, (height - 720 * scale) / 2);
+  stage.style.transformOrigin = "top left";
+  stage.style.transform = "translate(" + x + "px, " + y + "px) scale(" + scale + ")";
 }
 
 /**
@@ -73,13 +76,7 @@ async function refreshView() {
       moduleOrder = view.moduleOrder.slice();
       applyModuleOrder();
     }
-    if (view.theme === "day" || view.theme === "night") {
-      document.documentElement.dataset.theme = view.theme;
-      const themeButton = document.getElementById("gear-theme");
-      if (themeButton) {
-        themeButton.textContent = view.theme === "day" ? "Use night mode" : "Use day mode";
-      }
-    }
+    applyChrome(view);
     const next = JSON.stringify(view);
     if (next !== painted) {
       painted = next;
@@ -105,6 +102,7 @@ function render(nowMs) {
       // Wall clock, not the rAF timestamp. The rAF clock pauses while the tab is hidden.
       redrawGraphs(Date.now() / 1000);
       easeBars();
+      drawWeather(nowMs);
     }
   }
   requestAnimationFrame(render);
@@ -120,6 +118,7 @@ function paintAll() {
   paintStats();
   paintCases();
   paintSpotify();
+  paintWeatherBadge();
   paintModules();
   paintFooter();
 }
@@ -493,8 +492,9 @@ function paintHead(key, value) {
 /** @param {string} level */
 function levelColor(level) {
   /* Day uses deeper saturated inks so the line stays vivid on a white card. */
+  // Day cards are filled with the state color, so the line is dark ink on every card.
   if (document.documentElement.dataset.theme === "day") {
-    return { green: "#00a63e", yellow: "#e6a100", orange: "#f25c00", red: "#e10600" }[level] || "#2c3a4d";
+    return "#102018";
   }
   return { green: "#54de7c", yellow: "#f6d434", orange: "#ff8c1a", red: "#ff3a3a" }[level] || "#808996";
 }
@@ -505,7 +505,7 @@ function levelColor(level) {
  * @param {{name: string, rpm: number | null}} fan
  */
 function fanNode(fan) {
-  const row = el("div", "fan");
+  const row = el("div", "fan" + (fan.rpm == null ? " na" : ""));
   const spinning = typeof fan.rpm === "number" && fan.rpm > 0;
   const seconds = spinning ? Math.max(0.35, 2.2 - (fan.rpm / 2000) * 1.6) : 0;
   row.innerHTML = fanSvg(spinning, seconds);
@@ -525,38 +525,50 @@ function fanSvg(spinning, seconds) {
     "<circle cx=\"12\" cy=\"12\" r=\"2\" fill=\"#13161c\"/></svg>";
 }
 
-/** Sixteen thread slots. Missing host rows stay blank. Printed percent is the raw sample. */
+/**
+ * One tall track per logical processor. The count follows the host, so an
+ * 8-thread CPU and a 16-thread CPU use the same card. An even count is shown
+ * as cores/threads (two logical processors per core). The printed percent is
+ * the raw sample; the bar eases toward it.
+ */
 function paintLoad() {
   const root = document.getElementById("load");
+  const logical = (view.cpu && view.cpu.logical) || [];
   root.innerHTML = "";
   root.className = "panel pad";
-  const head = el("div", "kicker", "CPU LOAD · 8 CORES / 16 THREADS");
-  const total = view.cpu.loadTotal == null ? "—" : Math.round(view.cpu.loadTotal) + " %";
-  head.append(el("span", "", "   TOTAL " + total));
+  const head = el("div", "mid-title");
+  head.append(el("span", "", "CPU LOAD"));
+  const count = logical.length;
+  const cores = count > 0 && count % 2 === 0 ? (count / 2) + " CORES / " + count + " THREADS" : count + " THREADS";
+  const total = view.cpu.loadTotal == null ? "—" : Math.round(view.cpu.loadTotal) + "%";
+  head.append(el("b", "", cores + " · TOTAL " + total));
   root.append(head);
   const grid = el("div", "threads");
-  view.cpu.logical.forEach((value, index) => {
+  grid.style.gridTemplateColumns = "repeat(" + Math.max(count, 1) + ", 1fr)";
+  logical.forEach((value, index) => {
     const cell = el("div", "thread");
-    cell.append(el("em", "", "T" + String(index).padStart(2, "0")));
-    cell.append(el("strong", "", value == null ? "—" : Math.round(value) + "%"));
+    const wrap = el("div", "bar-wrap");
     const bar = el("div", "bar");
-    bar.style.height = "8px";
-    cell.append(bar);
+    wrap.append(bar);
+    cell.append(wrap);
+    cell.append(el("div", "pct", value == null ? "—" : Math.round(value) + "%"));
+    cell.append(el("div", "nm", "T" + String(index).padStart(2, "0")));
     grid.append(cell);
   });
   root.append(grid);
 }
 
-/**
- * Ease bar pixels toward the raw percent. The printed number stays on the raw sample
- * because paintLoad only runs when the payload changes.
- */
+/** Ease each fill toward the raw percent. Height is a percent of the track, not pixels. */
 function easeBars() {
+  const logical = (view.cpu && view.cpu.logical) || [];
+  while (barShown.length < logical.length) {
+    barShown.push(0);
+  }
   document.querySelectorAll("#load .bar").forEach((bar, index) => {
-    const value = view.cpu.logical[index];
-    const target = value == null ? 0 : Math.max(8, value * 0.7);
+    const value = logical[index];
+    const target = value == null ? 0 : Math.max(0, Math.min(100, value));
     barShown[index] = barShown[index] + (target - barShown[index]) * 0.15;
-    bar.style.height = barShown[index] + "px";
+    bar.style.height = barShown[index] + "%";
   });
 }
 
@@ -662,7 +674,7 @@ function paintCases() {
  * play only while paused, and a logged-out card keeps the buttons disabled.
  */
 function paintSpotify() {
-  const root = document.getElementById("spotify");
+  const root = document.getElementById("page-spotify") || document.getElementById("spotify");
   let spot = view.spotify || {};
   const preview = new URLSearchParams(location.search).get("preview");
   if (preview === "paused") {
@@ -674,7 +686,7 @@ function paintSpotify() {
   const playing = !!spot.playing && (view.demo || spot.connected);
   const hasTrack = !!(spot.title || spot.artist || spot.art);
   root.innerHTML = "";
-  root.className = "panel spot" + (hasTrack ? "" : " idle");
+  root.className = "swap-page spot" + (hasTrack ? "" : " idle");
   const art = document.createElement(hasTrack && spot.art ? "img" : "div");
   art.className = "spot-art";
   art.setAttribute("aria-hidden", "true");
@@ -1378,10 +1390,18 @@ function paintFans(fans) {
   });
 }
 
+let themeMode = "auto";
+let closeArmed = false;
+const SWAP = ["spotify", "clock", "wifi"];
+let swapIndex = 0;
+let swapReady = false;
+let hour12 = true;
+
 async function toggleTheme() {
-  const next = document.documentElement.dataset.theme === "day" ? "night" : "day";
+  const order = ["auto", "day", "night"];
+  const next = order[(order.indexOf(themeMode) + 1) % order.length];
   await postSetup("/api/setup/theme", { theme: next });
-  await paintSetup();
+  await refreshView();
 }
 
 async function toggleKeyboard() {
@@ -1409,6 +1429,11 @@ function closeGearMenu() {
     return;
   }
   menu.hidden = true;
+  closeArmed = false;
+  const closer = document.getElementById("gear-close");
+  if (closer) {
+    closer.textContent = "Close dashboard";
+  }
   if (gear) {
     gear.setAttribute("aria-expanded", "false");
   }
@@ -1433,6 +1458,16 @@ document.addEventListener("click", function (event) {
   if (gear && (event.target === gear || gear.contains(event.target))) {
     return;
   }
+  // The brightness slider has to stay open while it is dragged.
+  // Close dashboard's first click only arms the confirm step.
+  if (event.target.closest && event.target.closest(".gear-stay")) {
+    return;
+  }
+  const closer = document.getElementById("gear-close");
+  if (closer && (event.target === closer || closer.contains(event.target)) && !closeArmed) {
+    return;
+  }
+  closeArmed = false;
   closeGearMenu();
 }, true);
 document.addEventListener("fullscreenchange", function () {
@@ -1445,7 +1480,17 @@ document.getElementById("gear-window").addEventListener("click", function () {
   const toggle = document.getElementById("gear-window");
   windowAction(toggle.dataset.action || "fullscreen");
 });
-document.getElementById("gear-close").addEventListener("click", function () { windowAction("close"); });
+document.getElementById("gear-close").addEventListener("click", function () {
+  const button = document.getElementById("gear-close");
+  if (!closeArmed) {
+    closeArmed = true;
+    button.textContent = "Confirm close";
+    return;
+  }
+  closeArmed = false;
+  button.textContent = "Close dashboard";
+  windowAction("close");
+});
 document.getElementById("gear-setup").addEventListener("click", function () {
   document.getElementById("gear-menu").hidden = true;
   openSetup();
@@ -1504,8 +1549,33 @@ document.querySelectorAll("#setup nav button").forEach((button) => {
     });
   });
 });
+bindSwapper();
+paintClockShell();
+const brightness = document.getElementById("gear-brightness");
+if (brightness) {
+  brightness.addEventListener("input", function () {
+    applyBrightness(Number(brightness.value));
+  });
+  brightness.addEventListener("change", function () {
+    postSetup("/api/setup/appearance", { brightness: Number(brightness.value) });
+  });
+}
+const saveWeather = document.getElementById("setup-weather-save");
+if (saveWeather) {
+  saveWeather.addEventListener("click", saveWeatherSettings);
+}
+const opacity = document.getElementById("setup-opacity");
+if (opacity) {
+  opacity.addEventListener("input", function () {
+    const note = document.getElementById("setup-opacity-note");
+    if (note) {
+      note.textContent = opacity.value + "% — weather can show through. 100% is solid. The slider stops before the numbers get hard to read.";
+    }
+  });
+}
 refreshView();
 setInterval(refreshView, 250);
+setInterval(tickClock, 1000);
 requestAnimationFrame(render);
 if (location.search.indexOf("gear=1") >= 0) {
   document.getElementById("gear-menu").hidden = false;
@@ -1526,6 +1596,431 @@ if (location.search.indexOf("setup=1") >= 0) {
     const button = document.querySelector("[data-host-tab=\"" + hostTab + "\"]");
     if (button) {
       button.click();
+    }
+  }
+}
+
+function applyChrome(payload) {
+  const appearance = payload.appearance || {};
+  themeMode = appearance.themeMode || themeMode;
+  hour12 = appearance.hour12 !== false;
+  if (payload.theme === "day" || payload.theme === "night") {
+    document.documentElement.dataset.theme = payload.theme;
+  }
+  const themeButton = document.getElementById("gear-theme");
+  if (themeButton) {
+    themeButton.textContent = themeMode === "day" ? "Theme: Day" : (themeMode === "night" ? "Theme: Night" : "Theme: Auto");
+  }
+  const bright = document.getElementById("gear-brightness");
+  if (bright && document.activeElement !== bright && appearance.brightness != null) {
+    bright.value = String(appearance.brightness);
+  }
+  applyBrightness(appearance.brightness == null ? 100 : appearance.brightness);
+  const stage = document.getElementById("stage");
+  if (stage && appearance.cardOpacity != null) {
+    stage.style.setProperty("--card-alpha", String(appearance.cardOpacity));
+  }
+  if (!swapReady && appearance.rightModule) {
+    setSwap(Math.max(0, SWAP.indexOf(appearance.rightModule)));
+    swapReady = true;
+  }
+  const effectsBox = document.getElementById("setup-effects");
+  if (effectsBox && document.activeElement !== effectsBox) {
+    effectsBox.checked = appearance.effects !== false;
+  }
+  const opacity = document.getElementById("setup-opacity");
+  if (opacity && document.activeElement !== opacity && appearance.cardOpacity != null) {
+    opacity.value = String(appearance.cardOpacity);
+  }
+  const auto = document.getElementById("setup-weather-auto");
+  if (auto && document.activeElement !== auto) {
+    auto.checked = appearance.weatherAuto !== false;
+  }
+  const place = document.getElementById("setup-weather-place");
+  if (place && document.activeElement !== place && appearance.weatherPlace != null) {
+    place.value = appearance.weatherPlace;
+  }
+}
+
+function applyBrightness(value) {
+  const dim = document.getElementById("dim");
+  if (!dim) {
+    return;
+  }
+  const percent = Math.max(20, Math.min(100, Number(value) || 100));
+  dim.style.opacity = String(((100 - percent) / 100) * 0.72);
+}
+
+function setSwap(index) {
+  swapIndex = ((index % SWAP.length) + SWAP.length) % SWAP.length;
+  const track = document.getElementById("swap-track");
+  if (track) {
+    track.style.transform = "translateX(" + (-swapIndex * (100 / SWAP.length)) + "%)";
+  }
+  document.querySelectorAll("#swap-nav button").forEach(function (button) {
+    button.setAttribute("aria-selected", button.getAttribute("data-module") === SWAP[swapIndex] ? "true" : "false");
+  });
+  if (SWAP[swapIndex] === "wifi") {
+    refreshWifiPage();
+  }
+}
+
+function bindSwapper() {
+  const viewport = document.getElementById("swap-viewport");
+  if (!viewport) {
+    return;
+  }
+  let startX = 0;
+  let tracking = false;
+  viewport.addEventListener("pointerdown", function (event) {
+    if (event.target.closest("button, input, a, label")) {
+      return;
+    }
+    startX = event.clientX;
+    tracking = true;
+  });
+  viewport.addEventListener("pointerup", function (event) {
+    if (!tracking) {
+      return;
+    }
+    tracking = false;
+    const delta = event.clientX - startX;
+    if (Math.abs(delta) < 48) {
+      return;
+    }
+    setSwap(swapIndex + (delta < 0 ? 1 : -1));
+    postSetup("/api/setup/appearance", { rightModule: SWAP[swapIndex] });
+  });
+  document.querySelectorAll("#swap-nav button").forEach(function (button) {
+    button.addEventListener("click", function () {
+      const name = button.getAttribute("data-module");
+      setSwap(SWAP.indexOf(name));
+      postSetup("/api/setup/appearance", { rightModule: name });
+    });
+  });
+  setSwap(0);
+}
+
+function paintClockShell() {
+  const root = document.getElementById("page-clock");
+  if (!root) {
+    return;
+  }
+  root.innerHTML = "<div class=\"clock-page\">"
+    + "<div class=\"clock-kicker\">SYSTEM CLOCK</div>"
+    + "<svg class=\"clock-face\" id=\"clock-face\" viewBox=\"0 0 200 200\" aria-hidden=\"true\"></svg>"
+    + "<div class=\"clock-digital\" id=\"clock-digital\"></div>"
+    + "<div class=\"clock-date\" id=\"clock-date\"></div>"
+    + "<div class=\"clock-hours\">"
+    + "<button type=\"button\" id=\"clock-12\" aria-pressed=\"true\">12h</button>"
+    + "<button type=\"button\" id=\"clock-24\" aria-pressed=\"false\">24h</button>"
+    + "</div></div>";
+  document.getElementById("clock-12").addEventListener("click", function () { setHourMode(true); });
+  document.getElementById("clock-24").addEventListener("click", function () { setHourMode(false); });
+  const face = document.getElementById("clock-face");
+  let marks = "<circle cx=\"100\" cy=\"100\" r=\"92\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" opacity=\"0.35\"/>";
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2;
+    const inner = i % 3 === 0 ? 74 : 80;
+    marks += "<line x1=\"" + (100 + Math.sin(angle) * inner).toFixed(1) + "\" y1=\"" + (100 - Math.cos(angle) * inner).toFixed(1)
+      + "\" x2=\"" + (100 + Math.sin(angle) * 88).toFixed(1) + "\" y2=\"" + (100 - Math.cos(angle) * 88).toFixed(1)
+      + "\" stroke=\"currentColor\" stroke-width=\"" + (i % 3 === 0 ? 3 : 2) + "\"/>";
+  }
+  marks += "<line id=\"clock-hour\" x1=\"100\" y1=\"100\" x2=\"100\" y2=\"48\" stroke=\"currentColor\" stroke-width=\"5\" stroke-linecap=\"round\"/>";
+  marks += "<line id=\"clock-minute\" x1=\"100\" y1=\"108\" x2=\"100\" y2=\"28\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"/>";
+  marks += "<circle cx=\"100\" cy=\"100\" r=\"4\" fill=\"#2f6bff\"/>";
+  face.innerHTML = marks;
+  tickClock();
+}
+
+function setHourMode(twelve) {
+  hour12 = twelve;
+  postSetup("/api/setup/appearance", { hour12: twelve });
+  tickClock();
+}
+
+function tickClock() {
+  const digital = document.getElementById("clock-digital");
+  const date = document.getElementById("clock-date");
+  if (!digital) {
+    return;
+  }
+  const now = new Date();
+  let hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  let suffix = "";
+  if (hour12) {
+    suffix = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    if (hours === 0) {
+      hours = 12;
+    }
+  }
+  digital.textContent = "";
+  digital.append(document.createTextNode(hours + ":" + minutes));
+  if (hour12) {
+    const mark = document.createElement("span");
+    mark.textContent = suffix;
+    digital.append(mark);
+  }
+  date.textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  const hourAngle = ((now.getHours() % 12) + now.getMinutes() / 60) * 30;
+  const minuteAngle = now.getMinutes() * 6 + now.getSeconds() * 0.1;
+  const hourHand = document.getElementById("clock-hour");
+  const minuteHand = document.getElementById("clock-minute");
+  if (hourHand) {
+    hourHand.setAttribute("transform", "rotate(" + hourAngle + " 100 100)");
+  }
+  if (minuteHand) {
+    minuteHand.setAttribute("transform", "rotate(" + minuteAngle + " 100 100)");
+  }
+  const twelve = document.getElementById("clock-12");
+  const twenty = document.getElementById("clock-24");
+  if (twelve && twenty) {
+    twelve.setAttribute("aria-pressed", hour12 ? "true" : "false");
+    twenty.setAttribute("aria-pressed", hour12 ? "false" : "true");
+  }
+}
+
+function paintWeatherBadge() {
+  const node = document.getElementById("weather-badge");
+  const weather = view && view.weather;
+  if (!node) {
+    return;
+  }
+  if (!weather || !weather.ok) {
+    node.hidden = true;
+    return;
+  }
+  const icon = { clear: "Clear", cloudy: "Cloud", rain: "Rain", storm: "Storm", fog: "Fog" }[weather.kind] || "Cloud";
+  node.hidden = false;
+  node.textContent = icon + "  " + weather.tempC + "°  " + weather.humidity + "%  " + (weather.place || "");
+}
+
+async function refreshWifiPage() {
+  const root = document.getElementById("page-wifi");
+  if (!root) {
+    return;
+  }
+  let detail = { ok: false, note: "Wi-Fi status is loading." };
+  try {
+    const response = await fetch("/api/wifi", { cache: "no-store" });
+    if (response.ok) {
+      detail = await response.json();
+    }
+  } catch (_error) {
+    detail = { ok: false, note: "Wi-Fi status could not be read." };
+  }
+  root.innerHTML = "";
+  const page = el("div", "wifi-page");
+  page.append(el("h2", "", detail.ssid || "Not connected"));
+  page.append(el("div", "wifi-status", detail.status === "connected" ? "Connected" : (detail.status || "Unavailable")));
+  const bits = [];
+  if (detail.bars != null) {
+    bits.push(detail.bars + " bars");
+  }
+  if (detail.ip) {
+    bits.push(detail.ip);
+  }
+  if (detail.security) {
+    bits.push(detail.security);
+  }
+  page.append(el("div", "wifi-note", bits.join(" · ")));
+  if (detail.note) {
+    page.append(el("p", "wifi-note", detail.note));
+  }
+  const actions = el("div", "wifi-actions");
+  const reconnect = el("button", "transport primary", "Reconnect");
+  reconnect.type = "button";
+  reconnect.disabled = detail.available === false && !detail.demo;
+  reconnect.addEventListener("click", function () {
+    postWifi({ action: "reconnect", ssid: detail.ssid || "" });
+  });
+  const forget = el("button", "transport", "Forget");
+  forget.type = "button";
+  forget.disabled = !detail.ssid;
+  forget.addEventListener("click", function () {
+    const ask = el("div", "wifi-confirm");
+    ask.append(el("p", "", "Forget " + (detail.ssid || "this network") + "? The saved password is removed."));
+    const yes = el("button", "transport", "Forget");
+    yes.type = "button";
+    yes.addEventListener("click", function () {
+      postWifi({ action: "forget", ssid: detail.ssid, confirm: true });
+    });
+    const no = el("button", "transport", "Cancel");
+    no.type = "button";
+    no.addEventListener("click", function () { ask.remove(); });
+    ask.append(yes);
+    ask.append(no);
+    page.append(ask);
+  });
+  actions.append(reconnect);
+  actions.append(forget);
+  page.append(actions);
+  page.append(el("div", "kicker", "SAVED AND NEARBY"));
+  const list = el("div", "wifi-list");
+  (detail.networks || []).forEach(function (row) {
+    const item = el("button", "wifi-row");
+    item.type = "button";
+    item.textContent = (row.saved ? "Saved · " : "") + row.ssid + (row.open ? " · Open" : "");
+    item.addEventListener("click", function () {
+      if (!row.open && !row.saved) {
+        askPassword(page, row.ssid);
+        return;
+      }
+      postWifi({ action: "connect", ssid: row.ssid });
+    });
+    list.append(item);
+  });
+  page.append(list);
+  root.append(page);
+}
+
+function askPassword(page, ssid) {
+  const box = el("div", "wifi-confirm");
+  box.append(el("p", "", "Password for " + ssid + ". It is sent once to NetworkManager and is not saved in this app. Use the keyboard button if you need it."));
+  const input = document.createElement("input");
+  input.type = "password";
+  input.id = "wifi-password";
+  input.autocomplete = "off";
+  box.append(input);
+  const keys = el("button", "transport", "Keyboard");
+  keys.type = "button";
+  keys.addEventListener("click", function () { toggleKeyboard(); });
+  const go = el("button", "transport primary", "Connect");
+  go.type = "button";
+  go.addEventListener("click", function () {
+    postWifi({ action: "connect", ssid: ssid, password: input.value });
+    input.value = "";
+  });
+  box.append(keys);
+  box.append(go);
+  page.append(box);
+  input.focus();
+}
+
+async function postWifi(body) {
+  if (!setupToken) {
+    await loadSetup();
+  }
+  await fetch("/api/wifi", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Xeneon-Setup": setupToken },
+    body: JSON.stringify(body)
+  });
+  refreshWifiPage();
+}
+
+async function saveWeatherSettings() {
+  const place = document.getElementById("setup-weather-place");
+  const auto = document.getElementById("setup-weather-auto");
+  const effects = document.getElementById("setup-effects");
+  const opacityBox = document.getElementById("setup-opacity");
+  await postSetup("/api/setup/appearance", {
+    weatherPlace: place ? place.value : "",
+    weatherAuto: auto ? auto.checked : true,
+    effects: effects ? effects.checked : true,
+    cardOpacity: opacityBox ? Number(opacityBox.value) : 78
+  });
+  await refreshView();
+}
+
+const rainDrops = [];
+for (let index = 0; index < 36; index += 1) {
+  rainDrops.push({ x: (index * 73) % 100, y: (index * 29) % 100, speed: 0.6 + (index % 5) * 0.15 });
+}
+
+function drawWeather(nowMs) {
+  const canvas = document.getElementById("weather-sky");
+  const stage = document.getElementById("stage");
+  if (!canvas || !canvas.getContext) {
+    return;
+  }
+  const appearance = (view && view.appearance) || {};
+  const weather = (view && view.weather) || {};
+  const on = appearance.effects !== false && weather.ok && !document.hidden;
+  if (stage) {
+    stage.classList.toggle("effects", !!on);
+    stage.classList.toggle("see-through", !!(on && Number(appearance.cardOpacity) < 100));
+  }
+  const ctx = canvas.getContext("2d");
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  if (canvas.width !== Math.floor(width) || canvas.height !== Math.floor(height)) {
+    canvas.width = Math.max(1, Math.floor(width));
+    canvas.height = Math.max(1, Math.floor(height));
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!on) {
+    return;
+  }
+  const night = document.documentElement.dataset.theme !== "day";
+  const kind = weather.kind || "cloudy";
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  if (kind === "clear" && !night) {
+    sky.addColorStop(0, "#7ec8ff");
+    sky.addColorStop(1, "#d7ecff");
+  } else if (kind === "clear") {
+    sky.addColorStop(0, "#0c1428");
+    sky.addColorStop(1, "#1a2744");
+  } else if (night) {
+    sky.addColorStop(0, "#121820");
+    sky.addColorStop(1, "#1c2430");
+  } else {
+    sky.addColorStop(0, "#8ea4b8");
+    sky.addColorStop(1, "#d5dee8");
+  }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const t = nowMs / 1000;
+  if (kind === "clear") {
+    ctx.save();
+    ctx.translate(canvas.width * 0.78, canvas.height * 0.22);
+    ctx.rotate(t * 0.15);
+    ctx.strokeStyle = night ? "rgba(180,200,255,.35)" : "rgba(255,214,120,.55)";
+    ctx.lineWidth = 3;
+    for (let ray = 0; ray < 8; ray += 1) {
+      ctx.rotate(Math.PI / 4);
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(70, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (kind === "cloudy" || kind === "rain" || kind === "storm") {
+    ctx.fillStyle = night ? "rgba(180,190,210,.18)" : "rgba(255,255,255,.55)";
+    for (let cloud = 0; cloud < 5; cloud += 1) {
+      const x = ((t * (12 + cloud * 4) + cloud * 180) % (canvas.width + 200)) - 100;
+      const y = 40 + cloud * 28;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 70, 24, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + 40, y + 6, 46, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (kind === "rain" || kind === "storm") {
+    ctx.strokeStyle = night ? "rgba(180,210,255,.45)" : "rgba(40,70,110,.35)";
+    ctx.lineWidth = 2;
+    rainDrops.forEach(function (drop) {
+      drop.y = (drop.y + drop.speed) % 100;
+      const x = (drop.x / 100) * canvas.width;
+      const y = (drop.y / 100) * canvas.height;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 4, y + 16);
+      ctx.stroke();
+    });
+  }
+  if (kind === "storm" && Math.sin(t * 1.7) > 0.97) {
+    ctx.fillStyle = "rgba(255,255,255,.28)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  if (kind === "fog") {
+    ctx.fillStyle = night ? "rgba(160,170,190,.18)" : "rgba(255,255,255,.35)";
+    for (let band = 0; band < 3; band += 1) {
+      const y = canvas.height * (0.3 + band * 0.2) + Math.sin(t * 0.2 + band) * 12;
+      ctx.fillRect(0, y, canvas.width, 80);
     }
   }
 }
