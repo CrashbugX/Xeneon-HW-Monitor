@@ -48,6 +48,10 @@ if ! flock -n 9; then
 fi
 printf '%s\n' "$$" > "$RUNTIME/supervisor.pid"
 python3 -m xeneon.kioskctl log-window "supervisor $$ took kiosk.lock" || true
+# Hide the pointer with the Debian unclutter package. This is not a custom hider.
+if command -v unclutter >/dev/null 2>&1; then
+  unclutter -idle 0 -root >/dev/null 2>&1 &
+fi
 # A new login has no runtime mode file. Fullscreen again, even if the
 # previous login had closed the dashboard. A restart in this login keeps pause.
 if [ ! -f "$RUNTIME/mode" ]; then

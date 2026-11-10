@@ -88,6 +88,16 @@ else
     sudo -n sh "$ROOT/scripts/install-poweroff-sudo.sh" "$USER" || true
   fi
 fi
+# The kiosk starts unclutter itself. Install the package when apt can run without a prompt.
+if ! command -v unclutter >/dev/null 2>&1; then
+  echo "The pointer is hidden by the unclutter package."
+  if sudo -n true >/dev/null 2>&1; then
+    sudo -n apt-get update -qq || true
+    sudo -n apt-get install -y unclutter || echo "unclutter did not install. Run: sudo apt-get install -y unclutter"
+  else
+    echo "  sudo apt-get install -y unclutter"
+  fi
+fi
 PROJECT=$(CDPATH= cd -- "$ROOT/.." && pwd)
 # A browser upload of this tree is not executable. Mark it so the next run can be ./update.
 if [ -f "$PROJECT/update" ]; then
