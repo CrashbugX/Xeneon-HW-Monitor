@@ -14,6 +14,7 @@ from pathlib import Path
 from xeneon.discover import discover
 from xeneon.fans import apply_edit, catalog, default_pref, merge, observe
 from xeneon.spotify import PUBLIC_SPOTIFY_CLIENT_ID, redirect_uri, resolve_client_id
+from xeneon.weather import clamp_brightness, clamp_opacity
 
 
 class SetupFlow:
@@ -24,6 +25,15 @@ class SetupFlow:
         self.hosts: list[dict] = []
         self.client_id = PUBLIC_SPOTIFY_CLIENT_ID
         self.theme = "night"
+        # auto follows sunrise/sunset. day and night are the gear override.
+        self.theme_mode = "auto"
+        self.right_module = "spotify"
+        self.hour12 = True
+        self.brightness = 100
+        self.effects = True
+        self.card_opacity = 78
+        self.weather_place = ""
+        self.weather_auto = True
         self.fan_prefs: dict = {}
         self.paired_name = ""
         self.saved_host = ""
@@ -32,6 +42,43 @@ class SetupFlow:
         self.control_port = 8766
         self._pairing_id = ""
         self._load()
+
+    def appearance(self) -> dict:
+        """Settings the page can show. No tokens."""
+        return {
+            "themeMode": self.theme_mode,
+            "theme": self.theme,
+            "rightModule": self.right_module,
+            "hour12": self.hour12,
+            "brightness": self.brightness,
+            "effects": self.effects,
+            "cardOpacity": self.card_opacity,
+            "weatherPlace": self.weather_place,
+            "weatherAuto": self.weather_auto,
+        }
+
+    def apply_appearance(self, body: dict) -> None:
+        """Copy the fields the page sent. Unknown keys are ignored."""
+        if "themeMode" in body:
+            mode = str(body.get("themeMode") or "")
+            if mode in {"auto", "day", "night"}:
+                self.theme_mode = mode
+                if mode in {"day", "night"}:
+                    self.theme = mode
+        if "rightModule" in body and body.get("rightModule") in {"spotify", "clock", "wifi"}:
+            self.right_module = str(body.get("rightModule"))
+        if "hour12" in body:
+            self.hour12 = bool(body.get("hour12"))
+        if "brightness" in body:
+            self.brightness = clamp_brightness(body.get("brightness"), self.brightness)
+        if "effects" in body:
+            self.effects = bool(body.get("effects"))
+        if "cardOpacity" in body:
+            self.card_opacity = clamp_opacity(body.get("cardOpacity"), self.card_opacity)
+        if "weatherAuto" in body:
+            self.weather_auto = bool(body.get("weatherAuto"))
+        if "weatherPlace" in body:
+            self.weather_place = str(body.get("weatherPlace") or "").strip()[:80]
 
     def redirect_uri(self, port: int) -> str:
         return redirect_uri(port)
@@ -91,11 +138,17 @@ class SetupFlow:
             return 200, {"ok": True}
         if path == "/api/setup/theme":
             theme = str(body.get("theme") or "")
-            if theme not in {"day", "night"}:
+            if theme not in {"auto", "day", "night"}:
                 return 400, {"ok": False, "error": "theme"}
-            self.theme = theme
+            self.theme_mode = theme
+            if theme in {"day", "night"}:
+                self.theme = theme
             self._save()
-            return 200, {"ok": True, "theme": self.theme}
+            return 200, {"ok": True, "theme": self.theme, "themeMode": self.theme_mode}
+        if path == "/api/setup/appearance":
+            self.apply_appearance(body)
+            self._save()
+            return 200, {"ok": True, **self.appearance()}
         if path == "/api/setup/fan":
             sensor_id = str(body.get("id") or "")
             if not sensor_id or len(sensor_id) > 180 or "/" not in sensor_id:
@@ -206,6 +259,24 @@ class SetupFlow:
                     self.modules[key] = bool(modules[key])
         theme = loaded.get("theme")
         self.theme = theme if theme in {"day", "night"} else "night"
+        mode = loaded.get("themeMode")
+        if mode in {"auto", "day", "night"}:
+            self.theme_mode = mode
+        elif theme in {"day", "night"}:
+            # An older file picked a theme by hand. Keep that until they choose Auto.
+            self.theme_mode = theme
+        module = loaded.get("rightModule")
+        if module in {"spotify", "clock", "wifi"}:
+            self.right_module = module
+        if "hour12" in loaded:
+            self.hour12 = bool(loaded.get("hour12"))
+        self.brightness = clamp_brightness(loaded.get("brightness"), 100)
+        if "effects" in loaded:
+            self.effects = bool(loaded.get("effects"))
+        self.card_opacity = clamp_opacity(loaded.get("cardOpacity"), 78)
+        self.weather_place = str(loaded.get("weatherPlace") or "")[:80]
+        if "weatherAuto" in loaded:
+            self.weather_auto = bool(loaded.get("weatherAuto"))
         prefs = loaded.get("fanPrefs")
         self.fan_prefs = prefs if isinstance(prefs, dict) else {}
         self.paired_name = str(loaded.get("pairedName") or "")
@@ -234,6 +305,14 @@ class SetupFlow:
         loaded["modules"] = self.modules
         loaded["spotifyClientId"] = self.client_id
         loaded["theme"] = self.theme
+        loaded["themeMode"] = self.theme_mode
+        loaded["rightModule"] = self.right_module
+        loaded["hour12"] = self.hour12
+        loaded["brightness"] = self.brightness
+        loaded["effects"] = self.effects
+        loaded["cardOpacity"] = self.card_opacity
+        loaded["weatherPlace"] = self.weather_place
+        loaded["weatherAuto"] = self.weather_auto
         loaded["fanPrefs"] = self.fan_prefs
         loaded["pairedName"] = self.paired_name
         loaded["moduleOrder"] = self.module_order

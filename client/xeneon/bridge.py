@@ -21,7 +21,8 @@ from pathlib import Path
 from xeneon.keyboard import toggle as keyboard_toggle
 from xeneon.kioskctl import callback_page, display_mode, request_action, runtime_dir, window_state
 from xeneon.session import Session
-from xeneon.wifi import read_wifi
+from xeneon.weather import WeatherService, demo_weather, parse_clock, resolve_theme
+from xeneon.wifi import demo_wifi_detail, live_wifi_detail, read_wifi, run_wifi_action
 
 STATIC = Path(__file__).resolve().parent / "static"
 # PrestoDeck transport PNGs. Off is white, on is Spotify green, baked into the file.
@@ -53,6 +54,14 @@ class Bridge:
         self.control = None
         self._next_announce = 0.0
         self._misses = 0
+        self._weather_tick = 0.0
+        cache = Path.home() / ".config" / "xeneon" / "weather-cache.json"
+        if setup is not None:
+            cache = setup.config_path.parent / "weather-cache.json"
+        self.weather = WeatherService(cache)
+        if setup is not None:
+            self.weather.configure(setup.weather_place, setup.weather_auto)
+        self._demo_wifi: dict | None = None
         self._stop = threading.Event()
         handler = _page_factory(self)
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
@@ -104,6 +113,7 @@ class Bridge:
             "fans": self.setup.fan_rows(self.session.document()) if self.setup is not None else [],
             "demo": self.session.mode == "demo",
             "piShutdown": self.setup.pi_shutdown if self.setup is not None else True,
+            "appearance": self.setup.appearance() if self.setup is not None else {},
         }
 
     def allow_post(self, handler: BaseHTTPRequestHandler) -> bool:
@@ -130,6 +140,8 @@ class Bridge:
         if path == "/api/keyboard":
             result = keyboard_toggle(str(body.get("action") or ""), runtime_dir())
             return (200 if result.get("ok") else 400), result
+        if path == "/api/wifi":
+            return self._wifi_action(body)
         if path == "/api/spotify/action":
             if self.session.mode == "demo" or self.spotify is None:
                 return 409, {"ok": False, "error": "spotify_not_connected"}
@@ -164,6 +176,7 @@ class Bridge:
         while not self._stop.wait(1.0):
             if self.session.mode == "demo":
                 continue
+            self._refresh_weather()
             now = datetime.now(timezone.utc)
             if not self.host_url or not self.token:
                 self.session.note_failure("unauthorized", now)
@@ -231,6 +244,94 @@ class Bridge:
         status = announce(self.host_url, self.token, self.control_port, self.shutdown_token)
         self._next_announce = now + (60 if status == 200 else 300)
 
+    def _refresh_weather(self) -> None:
+        """Ask Open-Meteo when the cache is old. A network failure keeps the last reading."""
+        import time
+        if self.session.mode == "demo" or self.setup is None:
+            return
+        now = time.time()
+        if now < self._weather_tick and not self.weather.due(now):
+            return
+        self._weather_tick = now + 60
+        self.weather.configure(self.setup.weather_place, self.setup.weather_auto)
+        try:
+            self.weather.refresh(_json_get, now)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            return
+
+    def wifi_state(self) -> dict:
+        if self.session.mode == "demo":
+            if self._demo_wifi is None:
+                self._demo_wifi = demo_wifi_detail()
+            return self._demo_wifi
+        header = read_wifi()
+        try:
+            detail = live_wifi_detail()
+        except (OSError, ValueError):
+            detail = {"ok": True, "available": False, "networks": [], "note": "Wi-Fi status could not be read."}
+        if not detail.get("ssid") and header.get("ssid"):
+            detail["ssid"] = header.get("ssid")
+            detail["bars"] = header.get("bars")
+        return detail
+
+    def _wifi_action(self, body: dict) -> tuple[int, dict]:
+        action = str(body.get("action") or "")
+        ssid = str(body.get("ssid") or "")
+        confirm = bool(body.get("confirm"))
+        password = str(body.get("password") or "")
+        if self.session.mode == "demo":
+            return self._demo_wifi_action(action, ssid, confirm)
+        if not ssid and action == "reconnect":
+            current = self.wifi_state()
+            ssid = str(current.get("ssid") or "")
+        result = run_wifi_action(action, ssid, confirm, password)
+        # Never send the password back, even on failure.
+        result.pop("password", None)
+        return (200 if result.get("ok") else 400), result
+
+    def _demo_wifi_action(self, action: str, ssid: str, confirm: bool) -> tuple[int, dict]:
+        """Flip the sample list. No nmcli, and no password is kept."""
+        state = self.wifi_state()
+        rows = state.get("networks") or []
+        if action == "forget":
+            if not confirm:
+                return 400, {"ok": False, "error": "confirm_required"}
+            state["networks"] = [row for row in rows if row.get("ssid") != ssid]
+            if state.get("ssid") == ssid:
+                state["ssid"] = None
+                state["status"] = "disconnected"
+            return 200, {"ok": True, "demo": True}
+        if action in {"connect", "reconnect"}:
+            for row in rows:
+                row["active"] = row.get("ssid") == ssid
+                if row["active"]:
+                    state["ssid"] = ssid
+                    state["bars"] = row.get("bars")
+                    state["status"] = "connected"
+            return 200, {"ok": True, "demo": True}
+        return 400, {"ok": False, "error": "action"}
+
+
+def _resolved_theme(bridge: Bridge) -> str:
+    """Gear override, or sunrise/sunset, or 07:00–19:00. Local time, not UTC."""
+    if bridge.setup is None:
+        return "night"
+    if bridge.setup.theme_mode in {"day", "night"}:
+        return bridge.setup.theme_mode
+    snapshot = {} if bridge.session.mode == "demo" else bridge.weather.snapshot()
+    sunrise = parse_clock(str(snapshot.get("sunrise") or ""))
+    sunset = parse_clock(str(snapshot.get("sunset") or ""))
+    return resolve_theme("auto", datetime.now(), sunrise, sunset)
+
+
+def _json_get(url: str) -> dict:
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "xeneon-hw-monitor"})
+    with urllib.request.urlopen(request, timeout=4) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("weather")
+    return payload
+
 
 def _token_accepts(base: str, token: str) -> bool:
     request = urllib.request.Request(base + "/v1/telemetry", headers={"Authorization": "Bearer " + token})
@@ -253,8 +354,11 @@ def _page_factory(bridge: Bridge):
                 body = bridge.session.view(datetime.now(timezone.utc), wifi)
                 if bridge.setup is not None:
                     body["fanBoard"] = bridge.setup.fan_rows(bridge.session.document())
-                    body["theme"] = bridge.setup.theme
+                    body["theme"] = _resolved_theme(bridge)
                     body["moduleOrder"] = bridge.setup.module_order
+                    body["appearance"] = bridge.setup.appearance()
+                    body["appearance"]["theme"] = body["theme"]
+                body["weather"] = demo_weather() if bridge.session.mode == "demo" else bridge.weather.snapshot()
                 _json(self, 200, body)
                 return
             if path == "/health":
@@ -266,15 +370,16 @@ def _page_factory(bridge: Bridge):
             if path == "/api/window":
                 _json(self, 200, window_state())
                 return
+            if path == "/api/wifi":
+                _json(self, 200, bridge.wifi_state())
+                return
             if path == "/spotify/callback":
                 bridge.finish_spotify(self)
                 return
             if path in ("/", "/index.html"):
                 # The saved theme is on the root element before first paint.
                 # Setting it after the fetch fades every card through the night colors.
-                theme = "night"
-                if bridge.setup is not None and bridge.setup.theme in {"day", "night"}:
-                    theme = bridge.setup.theme
+                theme = _resolved_theme(bridge)
                 document = (STATIC / "index.html").read_text(encoding="utf-8")
                 document = document.replace("<html lang=\"en\">", f"<html lang=\"en\" data-theme=\"{theme}\">", 1)
                 _raw_html(self, 200, document)
